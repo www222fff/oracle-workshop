@@ -187,8 +187,7 @@ mod easy_oracle {
     #[derive(PartialEq, Eq, Debug)]
     struct GistUrl {
         username: String,
-        gist_id: String,
-        filename: String,
+        twitter_id: String,
     }
 
     #[derive(Clone, Encode, Decode, Debug)]
@@ -204,20 +203,21 @@ mod easy_oracle {
     /// - Otherwise returns an [Error].
     fn parse_gist_url(url: &str) -> Result<GistUrl> {
         let path = url
-            .strip_prefix("https://gist.githubusercontent.com/")
+            .strip_prefix("https://twitter.com/")
             .ok_or(Error::InvalidUrl)?;
         let components: Vec<_> = path.split('/').collect();
-        if components.len() < 5 {
+        if components.len() < 3 {
             return Err(Error::InvalidUrl);
         }
+        let ids: Vec<_> = components[2].split('?').collect();
+
         Ok(GistUrl {
             username: components[0].to_string(),
-            gist_id: components[1].to_string(),
-            filename: components[4].to_string(),
+            twitter_id: ids[0].to_string(),
         })
     }
 
-    const CLAIM_PREFIX: &str = "This gist is owned by address: 0x";
+    const CLAIM_PREFIX: &str = "This twitter is owned by address: 0x";
     const ADDRESS_LEN: usize = 64;
 
     /// Extracts the ownerhip of the gist from a claim in the gist body.
@@ -262,13 +262,12 @@ mod easy_oracle {
 
         #[ink::test]
         fn can_parse_gist_url() {
-            let result = parse_gist_url("https://gist.githubusercontent.com/h4x3rotab/0cabeb528bdaf30e4cf741e26b714e04/raw/620f958fb92baba585a77c1854d68dc986803b4e/test%2520gist");
+            let result = parse_gist_url("https://twitter.com/DannyImmutable/status/1537952078315737094?s=12&t=Qakhx2KY60S9N8oQjX39SA");
             assert_eq!(
                 result,
                 Ok(GistUrl {
-                    username: "h4x3rotab".to_string(),
-                    gist_id: "0cabeb528bdaf30e4cf741e26b714e04".to_string(),
-                    filename: "test%2520gist".to_string(),
+                    username: "DannyImmutable".to_string(),
+                    twitter_id: "1537952078315737094".to_string(),
                 })
             );
             let err = parse_gist_url("http://example.com");
@@ -277,7 +276,7 @@ mod easy_oracle {
 
         #[ink::test]
         fn can_decode_claim() {
-            let ok = extract_claim(b"...This gist is owned by address: 0x0123456789012345678901234567890123456789012345678901234567890123...");
+            let ok = extract_claim(b"...This twitter is owned by address: 0x0123456789012345678901234567890123456789012345678901234567890123...");
             assert_eq!(
                 ok,
                 decode_accountid_256(
@@ -286,15 +285,15 @@ mod easy_oracle {
             );
             // Bad cases
             assert_eq!(
-                extract_claim(b"This gist is owned by"),
+                extract_claim(b"This twitter is owned by"),
                 Err(Error::NoClaimFound),
             );
             assert_eq!(
-                extract_claim(b"This gist is owned by address: 0xAB"),
+                extract_claim(b"This twitter is owned by address: 0xAB"),
                 Err(Error::InvalidAddressLength),
             );
             assert_eq!(
-                extract_claim(b"This gist is owned by address: 0xXX23456789012345678901234567890123456789012345678901234567890123"),
+                extract_claim(b"This twitter is owned by address: 0xXX23456789012345678901234567890123456789012345678901234567890123"),
                 Err(Error::InvalidAddress),
             );
         }
@@ -335,14 +334,14 @@ mod easy_oracle {
                 //
                 // Mock a http request first (the 256 bits account id is the pubkey of Alice)
                 mock::mock_http_request(|_| {
-                    HttpResponse::ok(b"This gist is owned by address: 0x0101010101010101010101010101010101010101010101010101010101010101".to_vec())
+                    HttpResponse::ok(b"This twitter is owned by address: 0x0101010101010101010101010101010101010101010101010101010101010101".to_vec())
                 });
-                let result = contract.call().attest("https://gist.githubusercontent.com/h4x3rotab/0cabeb528bdaf30e4cf741e26b714e04/raw/620f958fb92baba585a77c1854d68dc986803b4e/test%2520gist".to_string());
+                let result = contract.call().attest("https://twitter.com/DannyImmutable/status/1537952078315737094?s=12&t=Qakhx2KY60S9N8oQjX39SA".to_string());
                 assert!(result.is_ok());
 
                 let attestation = result.unwrap();
                 let data: GistQuote = Decode::decode(&mut &attestation.data[..]).unwrap();
-                assert_eq!(data.username, "h4x3rotab");
+                assert_eq!(data.username, "DannyImmutable");
                 assert_eq!(data.account_id, accounts.alice);
 
                 // Before redeem
