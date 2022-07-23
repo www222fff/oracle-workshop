@@ -228,6 +228,25 @@ name = "environmental"
 version = "1.1.3"
 
 [[package]]
+name = "eth_holder"
+version = "0.1.0"
+dependencies = [
+ "environmental",
+ "fat_utils",
+ "hex",
+ "ink_env",
+ "ink_lang",
+ "ink_metadata",
+ "ink_prelude",
+ "ink_primitives",
+ "ink_storage",
+ "openbrush",
+ "parity-scale-codec",
+ "pink-extension",
+ "scale-info",
+]
+
+[[package]]
 name = "fat_badges"
 version = "0.1.0"
 dependencies = [
