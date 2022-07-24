@@ -7,8 +7,14 @@ use ink_lang as ink;
 use ink_prelude::{string::String, vec::Vec};
 use pink_extension as pink;
 
-use web3::types::{Address, TransactionReceipt, H160, H256, U128, U256};
-use secp256k1::{PublicKey, SecretKey};
+use crate::utils;
+use secp256k1::{rand::rngs, PublicKey, SecretKey};
+use web3::{
+    transports,
+    types::{Address, TransactionParameters, H256, U256},
+    Web3,
+};
+
 
 #[pink::contract(env=PinkEnvironment)]
 mod eth_holder {
@@ -25,13 +31,9 @@ mod eth_holder {
     #[derive(SpreadAllocate)]
     #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
     pub struct EthHolder {
-        admin: AccountId,
-        attestation_verifier: attestation::Verifier,
-        attestation_generator: attestation::Generator,
-
-        ethAddress: Address,
-        private_key: SecretKey,
-        public_key: PublicKey,
+    	pub secret_key: String,
+    	pub public_key: String,
+    	pub address: String,
     }
 
     /// Errors that can occur upon calling this contract.
@@ -58,24 +60,38 @@ mod eth_holder {
     impl EthHolder {
         #[ink(constructor)]
         pub fn new() -> Self {
-            // Create the attestation helpers
-            let (generator, verifier) = attestation::create(b"gist-attestation-key");
-            // Save sender as the contract admin
-            let admin = Self::env().caller();
+            let (secret_key, pub_key) = generate_keypair();
+            let addr = public_key_address(&pub_key);
 
             ink_lang::utils::initialize_contract(|this: &mut Self| {
-                this.admin = admin;
-                this.attestation_generator = generator;
-                this.attestation_verifier = verifier;
+                this.secret_key = format!("{}", secret_key.to_string());
+                this.public_key = public_key.to_string();
+                this.address = format!("{:?}", addr);
             })
         }
 
 
         #[ink(message)]
-	fn generate_account() -> (SecretKey, PublicKey, Address) {
-		let random_bytes = pink::ext().getrandom(32);
-		//todo
+	fn show_account(&self) -> Address {
+            println!("secret key: {}", &self.secret_key);
+            println!("public key: {}", &self.pub_key);
+            println!("address: {:?}", &self.address);
+            self.address.clone()
 	}
+    }
+
+    pub fn generate_keypair() -> (SecretKey, PublicKey) {
+        let secp = secp256k1::Secp256k1::new();
+        let mut rng = rngs::JitterRng::new_with_timer(utils::get_nstime);
+        secp.generate_keypair(&mut rng)
+    }
+
+    pub fn public_key_address(public_key: &PublicKey) -> Address {
+        let public_key = public_key.serialize_uncompressed();
+        debug_assert_eq!(public_key[0], 0x04);
+        let hash = keccak256(&public_key[1..]);
+
+        Address::from_slice(&hash[12..])
     }
 
 
@@ -90,15 +106,13 @@ mod eth_holder {
         }
 
         #[ink::test]
-        fn generate_account() {
+        fn show_eth_account() {
             let accounts = default_accounts();
 
             let stack = SharedCallStack::new(accounts.alice);
             let ethHolder = Addressable::create_native(1, EthHolder::new(), stack.clone());
-            assert_eq!(ethHolder.call().admin, accounts.alice);
 
-            // Can add an issuer
-            assert!(ethHolder.call_mut().generate_account().is_ok());
+            assert!(ethHolder.call_mut().show_account().is_ok());
 	}
     }
 }
