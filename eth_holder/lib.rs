@@ -7,12 +7,6 @@ use ink_lang as ink;
 use ink_prelude::{string::String, vec::Vec};
 use pink_extension as pink;
 
-use secp256k1::{
-    PublicKey, SecretKey,
-};
-
-use web3::types::Address;
-
 #[pink::contract(env=PinkEnvironment)]
 mod eth_holder {
     use super::pink;
@@ -21,6 +15,11 @@ mod eth_holder {
     use ink_storage::traits::SpreadAllocate;
     use scale::{Decode, Encode};
 
+    use secp256k1::{
+        PublicKey, SecretKey,
+    };
+    use web3::types::Address;
+
     static LOGGER: Logger = Logger::with_max_level(Level::Info);
     pink::register_logger!(&LOGGER);
 
@@ -28,9 +27,9 @@ mod eth_holder {
     #[derive(SpreadAllocate)]
     #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
     pub struct EthHolder {
-    	secret_key: SecretKey,
-    	public_key: PublicKey,
-    	address: Address,
+    	secret_key: String,
+    	public_key: String,
+    	address: String,
     }
 
     /// Errors that can occur upon calling this contract.
@@ -74,19 +73,23 @@ mod eth_holder {
     fn generate_account() -> EthHolder {
         let random_bytes = pink::ext().getrandom(32);
         let secp = Secp256k1::new();
-        let secret_key = SecretKey::from_slice(&random_bytes);
-        let public_key = PublicKey::from_secret_key(&secp, &secret_key);
+        let secret = SecretKey::from_slice(&random_bytes);
+        let public = PublicKey::from_secret_key(&secp, &secret);
 
-        let public_key_encode= public_key.serialize_uncompressed();
+        let public_key_encode= public.serialize_uncompressed();
         debug_assert_eq!(public_key_encode[0], 0x04);
         let hash = keccak256(&public_key_encode[1..]);
-        let account = Address::from_slice(&hash[12..]);
+        let addr = Address::from_slice(&hash[12..]);
 
-        println!("secret key: {}", &secret_key.to_string());
-        println!("public key: {}", &public_key.to_string());
-        println!("address: {:?}", address);
+        println!("secret key: {}", &secret.to_string());
+        println!("public key: {}", &public.to_string());
+        println!("address: {:?}", addr);
 
-        EthHolder {secret_key, public_key, address}
+        EthHolder {
+            secret_key: secret.to_string(),
+            public_key: public.to_string(),
+            address: format!("{:?}", addr),
+        }
     }
 
 
