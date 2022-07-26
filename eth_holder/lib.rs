@@ -15,6 +15,7 @@ mod eth_holder {
     use ink_storage::traits::SpreadAllocate;
     use scale::{Decode, Encode};
 
+    use tiny_keccak::keccak256;
     use secp256k1::{
         PublicKey, SecretKey,
     };
@@ -72,8 +73,8 @@ mod eth_holder {
 
     fn generate_account() -> EthHolder {
         let random_bytes = pink::ext().getrandom(32);
-        let secp = Secp256k1::new();
-        let secret = SecretKey::from_slice(&random_bytes);
+        let secp = secp256k1::Secp256k1::new();
+        let secret = SecretKey::from_slice(&random_bytes).expect("32 bytes, within curve order");
         let public = PublicKey::from_secret_key(&secp, &secret);
 
         let public_key_encode= public.serialize_uncompressed();
@@ -86,7 +87,7 @@ mod eth_holder {
         println!("address: {:?}", addr);
 
         EthHolder {
-            secret_key: secret.to_string(),
+            secret_key: format!("{}", secret.to_string()),
             public_key: public.to_string(),
             address: format!("{:?}", addr),
         }
