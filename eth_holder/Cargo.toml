@@ -18,10 +18,12 @@ scale-info = { version = "2", default-features = false, features = ["derive"], o
 openbrush = { path = "../vendor/openbrush-contracts", version = "~2.1.0", default-features = false }
 pink-extension = { version = "0.1.11", default-features = false }
 hex = { version = "0.4.3", default-features = false, features = ["alloc"] }
-
 fat_utils = { path = "../utils", default-features = false }
-secp256k1 = { version = "0.20.3", features = ["rand"] }
+
+secp256k1 = { version = "0.20.3" }
 tiny-keccak = { version = "1.4" }
+#web3 = { version = "0.18.0", default-features = false, features = ["wasm"] }
+web3 = { git = "https://github.com/tomusdrw/rust-web3", default-features = false }
 
 [dev-dependencies]
 environmental = { path = "../utils/environmental", default-features = false }

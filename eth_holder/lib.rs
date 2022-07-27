@@ -16,16 +16,14 @@ mod eth_holder {
     use scale::{Decode, Encode};
 
     use tiny_keccak::keccak256;
-    use secp256k1::{
-        PublicKey, SecretKey,
-    };
+    use secp256k1::{PublicKey, SecretKey};
     use web3::types::Address;
 
     static LOGGER: Logger = Logger::with_max_level(Level::Info);
     pink::register_logger!(&LOGGER);
 
     #[ink(storage)]
-    #[derive(SpreadAllocate)]
+    #[derive(SpreadAllocate, Decode, Encode)]
     #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
     pub struct EthHolder {
     	secret_key: String,
