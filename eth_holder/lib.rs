@@ -15,20 +15,24 @@ mod eth_holder {
     use ink_storage::traits::SpreadAllocate;
     use scale::{Decode, Encode};
 
+    use ink_prelude::{
+        string::{String, ToString},
+        vec::Vec,
+        format,
+    };
+
     use tiny_keccak::keccak256;
-    use secp256k1::{PublicKey, SecretKey};
-    use web3::types::Address;
+    use secp256k1::{Secp256k1, PublicKey, SecretKey};
 
     static LOGGER: Logger = Logger::with_max_level(Level::Info);
     pink::register_logger!(&LOGGER);
 
     #[ink(storage)]
-    #[derive(SpreadAllocate, Decode, Encode)]
+    #[derive(SpreadAllocate)]
     #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
     pub struct EthHolder {
     	secret_key: String,
-    	public_key: String,
-    	address: String,
+    	//public_key: String,
     }
 
     /// Errors that can occur upon calling this contract.
@@ -65,29 +69,24 @@ mod eth_holder {
 
         #[ink(message)]
 	pub fn get_address(&self) -> String {
-            self.address.clone()
+            self.secret_key.clone()
 	}
     }
 
     fn generate_account() -> EthHolder {
         let random_bytes = pink::ext().getrandom(32);
-        let secp = secp256k1::Secp256k1::new();
         let secret = SecretKey::from_slice(&random_bytes).expect("32 bytes, within curve order");
+        /*let secp = Secp256k1::new();
         let public = PublicKey::from_secret_key(&secp, &secret);
-
         let public_key_encode= public.serialize_uncompressed();
         debug_assert_eq!(public_key_encode[0], 0x04);
         let hash = keccak256(&public_key_encode[1..]);
         let addr = Address::from_slice(&hash[12..]);
-
-        println!("secret key: {}", &secret.to_string());
-        println!("public key: {}", &public.to_string());
-        println!("address: {:?}", addr);
+*/
 
         EthHolder {
             secret_key: format!("{}", secret.to_string()),
-            public_key: public.to_string(),
-            address: format!("{:?}", addr),
+            //public_key: public.to_string(),
         }
     }
 
@@ -96,20 +95,14 @@ mod eth_holder {
     mod tests {
         use super::*;
         use ink_lang as ink;
-        use openbrush::traits::mock::{Addressable, SharedCallStack};
 
-        fn default_accounts() -> ink_env::test::DefaultAccounts<ink_env::DefaultEnvironment> {
+        fn default_accounts() -> ink_env::test::DefaultAccounts<PinkEnvironment> {
             ink_env::test::default_accounts::<Environment>()
         }
 
         #[ink::test]
-        fn get_account() {
-            let accounts = default_accounts();
-
-            let stack = SharedCallStack::new(accounts.alice);
-            let ethHolder = Addressable::create_native(1, EthHolder::new(), stack.clone());
-
-            //assert!(ethHolder.call_mut().get_address().is_ok());
+        fn get_address() {
+           // generate_account();
 	}
     }
 }
