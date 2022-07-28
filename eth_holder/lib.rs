@@ -116,6 +116,9 @@ mod eth_holder {
 
            let account = generate_account();
            println!("account: {:?}", account);
+
+           let EXPECTED_ETH_ADDRESS = "0x559bfec75ad40e4ff21819bcd1f658cc475c41ba"; 
+           assert_eq!(account.address, EXPECTED_ETH_ADDRESS);
 	}
     }
 }
