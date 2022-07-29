@@ -75,7 +75,7 @@ mod eth_holder {
     }
 
     
-    fn to_array<T>(v: Vec<T>) -> [T; 33] where T: Copy {
+    fn to_array<T>(v: &Vec<T>) -> [T; 33] where T: Copy {
         let slice = v.as_slice();
         let array: [T; 33] = slice.try_into().expect("Expected a Vec of length 33");
         array
@@ -85,7 +85,7 @@ mod eth_holder {
         let privkey = pink::ext().getrandom(32);
         let pubkey = sig::get_public_key(&privkey, sig::SigType::Ecdsa);
         let mut address = [0; 20];
-        let pubkey_array = to_array(pubkey.clone());
+        let pubkey_array = to_array(&pubkey);
         ink_env::ecdsa_to_eth_address(&pubkey_array, &mut address);
 
         EthHolder {
