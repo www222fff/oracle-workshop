@@ -13,30 +13,28 @@ mod eth_holder {
     use pink::{http_get, PinkEnvironment};
     use ink_storage::traits::SpreadAllocate;
     use scale::{Decode, Encode};
-
+    use pink::chain_extension::signing as sig;
+    use slice_as_array::{slice_as_array, slice_as_array_transmute };
     use ink_prelude::{
         string::{String, ToString},
-        vec::Vec,
+        vec::{Vec},
         format,
     };
 
-    use tiny_keccak::keccak256;
-    use secp256k1::{Secp256k1, PublicKey, SecretKey};
-    use web3::{
-        types::{Address, TransactionParameters, H256, U256},
-    };
-
+    use ink_env::hash::{Keccak256, HashOutput};
 
     static LOGGER: Logger = Logger::with_max_level(Level::Info);
     pink::register_logger!(&LOGGER);
+
+    type Address = [u8; 20];
 
     #[ink(storage)]
     #[derive(SpreadAllocate)]
     #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
     pub struct EthHolder {
-    	secret_key: String,
-    	public_key: String,
-        address: String,
+    	private_key: Vec<u8>,
+    	public_key: Vec<u8>,
+        address: Address,
     }
 
     /// Errors that can occur upon calling this contract.
@@ -71,28 +69,27 @@ mod eth_holder {
         }
 
         #[ink(message)]
-	pub fn get_address(&self) -> String {
-            self.address.clone()
+	pub fn get_address(&self) -> Address {
+            self.address
 	}
     }
 
     fn generate_account() -> EthHolder {
-        let random_bytes = pink::ext().getrandom(32);
-        let sec_key = SecretKey::from_slice(&random_bytes).expect("32 bytes, within curve order");
-        let secp = Secp256k1::new();
-        let pub_key = PublicKey::from_secret_key(&secp, &sec_key);
-        let public_key_encode= pub_key.serialize_uncompressed();
-        debug_assert_eq!(public_key_encode[0], 0x04);
-        let hash = keccak256(&public_key_encode[1..]);
-        let addr = Address::from_slice(&hash[12..]);
+        let privkey = pink::ext().getrandom(32);
+        let pubkey = sig::get_public_key(&privkey, sig::SigType::Ecdsa);
+
+        let pubkey_slice = pubkey.as_slice();
+        let pubkey_array: &[u8; 33] = slice_as_array!(&pubkey_slice, [u8; 33]).expect("Length mismatch");;
+
+        let mut address = [0; 20];
+        ink_env::ecdsa_to_eth_address(pubkey_array, &mut address);
 
         EthHolder {
-            secret_key: format!("{}", sec_key.to_string()),
-            public_key: pub_key.to_string(),
-            address: format!("{:?}", addr),
+            private_key: privkey,
+            public_key: pubkey.to_vec(),
+            address: address,
         }
     }
-
 
     #[cfg(test)]
     mod tests {
@@ -105,19 +102,27 @@ mod eth_holder {
         }
 
         #[ink::test]
-        fn get_address() {
+        fn get_account() {
            mock::mock_getrandom(|_| {
-               //[0xcd; 32].to_vec()
                [0x9e,0xb2,0xee,0x60,0x39,0x3a,0xee,0xec,
                 0x31,0x70,0x9e,0x25,0x6d,0x44,0x8c,0x9e,
                 0x40,0xfa,0x64,0x23,0x3a,0xbf,0x12,0x31,
                 0x8f,0x63,0x72,0x6e,0x9c,0x41,0x7b,0x69].to_vec()
            });
 
+           mock::mock_get_public_key(|_| {
+               [0x02,0x62,0x20,0x26,0x8e,0x36,0xda,0x1d,
+                0x79,0x9a,0x67,0xc3,0xac,0x5e,0xca,0xc2,
+                0x24,0xb4,0x5c,0xea,0x2b,0x04,0x7d,0x1b,
+                0x68,0xa8,0xff,0xbf,0x31,0xf0,0x8b,0x27,0x50].to_vec()
+           });
+
            let account = generate_account();
            println!("account: {:?}", account);
 
-           let EXPECTED_ETH_ADDRESS = "0x559bfec75ad40e4ff21819bcd1f658cc475c41ba"; 
+           let EXPECTED_ETH_ADDRESS = [0x55,0x9b,0xfe,0xc7,0x5a,0xd4,0x0e,0x4f,
+                                       0xf2,0x18,0x19,0xbc,0xd1,0xf6,0x58,0xcc,
+                                       0x47,0x5c,0x41,0xba]; 
            assert_eq!(account.address, EXPECTED_ETH_ADDRESS);
 	}
     }
