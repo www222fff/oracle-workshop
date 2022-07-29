@@ -6,6 +6,7 @@ use ink_env::AccountId;
 use ink_lang as ink;
 use pink_extension as pink;
 
+
 #[pink::contract(env=PinkEnvironment)]
 mod eth_holder {
     use super::pink;
@@ -14,14 +15,13 @@ mod eth_holder {
     use ink_storage::traits::SpreadAllocate;
     use scale::{Decode, Encode};
     use pink::chain_extension::signing as sig;
-    use slice_as_array::{slice_as_array, slice_as_array_transmute };
     use ink_prelude::{
         string::{String, ToString},
         vec::{Vec},
         format,
     };
-
     use ink_env::hash::{Keccak256, HashOutput};
+    use core::convert::TryInto;
 
     static LOGGER: Logger = Logger::with_max_level(Level::Info);
     pink::register_logger!(&LOGGER);
@@ -74,15 +74,19 @@ mod eth_holder {
 	}
     }
 
+    
+    fn to_array<T>(v: Vec<T>) -> [T; 33] where T: Copy {
+        let slice = v.as_slice();
+        let array: [T; 33] = slice.try_into().expect("Expected a Vec of length 33");
+        array
+    }
+
     fn generate_account() -> EthHolder {
         let privkey = pink::ext().getrandom(32);
         let pubkey = sig::get_public_key(&privkey, sig::SigType::Ecdsa);
-
-        let pubkey_slice = pubkey.as_slice();
-        let pubkey_array: &[u8; 33] = slice_as_array!(&pubkey_slice, [u8; 33]).expect("Length mismatch");;
-
         let mut address = [0; 20];
-        ink_env::ecdsa_to_eth_address(pubkey_array, &mut address);
+        let pubkey_array = to_array(pubkey.clone());
+        ink_env::ecdsa_to_eth_address(&pubkey_array, &mut address);
 
         EthHolder {
             private_key: privkey,
