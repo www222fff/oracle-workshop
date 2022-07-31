@@ -22,12 +22,13 @@ mod eth_holder {
     };
     use ink_env::hash::{Keccak256, HashOutput};
     use core::convert::TryInto;
+    pub use primitive_types::{U256, U512, H160, H256, H512};
 
     static LOGGER: Logger = Logger::with_max_level(Level::Info);
     pink::register_logger!(&LOGGER);
 
     type Address = [u8; 20];
-
+    
     #[ink(storage)]
     #[derive(SpreadAllocate)]
     #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
@@ -95,6 +96,49 @@ mod eth_holder {
         }
     }
 
+    #[derive(Clone, Debug, PartialEq)]
+    pub struct TransactionParameters {
+        /// Transaction nonce (None for account transaction count)
+        pub nonce: Option<U256>,
+        /// To address
+        pub to: Option<Address>,
+        /// Supplied gas
+        pub gas: U256,
+        /// Gas price (None for estimated gas price)
+        pub gas_price: Option<U256>,
+        /// Transferred value
+        pub value: U256,
+        /// Data
+        //pub data: Bytes,
+        /// The chain ID (None for network ID)
+        pub chain_id: Option<u64>,
+        /// Transaction type, Some(1) for AccessList transaction, None for Legacy
+        //pub transaction_type: Option<U64>,
+        /// Access list
+        //pub access_list: Option<AccessList>,
+        /// Max fee per gas
+        pub max_fee_per_gas: Option<U256>,
+        /// miner bribe
+        pub max_priority_fee_per_gas: Option<U256>,
+    }
+
+    /// Data for offline signed transaction
+    #[derive(Clone, Debug, PartialEq)]
+        pub struct SignedTransaction {
+        /// The given message hash
+        pub message_hash: H256,
+        /// V value with chain replay protection.
+        pub v: u64,
+        /// R value.
+        pub r: H256,
+        /// S value.
+        pub s: H256,
+        /// The raw signed transaction ready to be sent with `send_raw_transaction`
+        //pub raw_transaction: Bytes,
+        /// The transaction hash for the RLP encoded transaction.
+        pub transaction_hash: H256,
+    }
+
     #[cfg(test)]
     mod tests {
         use super::*;
@@ -106,7 +150,7 @@ mod eth_holder {
         }
 
         #[ink::test]
-        fn get_account() {
+        fn verify_get_account() {
            mock::mock_getrandom(|_| {
                [0x9e,0xb2,0xee,0x60,0x39,0x3a,0xee,0xec,
                 0x31,0x70,0x9e,0x25,0x6d,0x44,0x8c,0x9e,
