@@ -46,9 +46,16 @@ mod eth_holder {
     }
 
     #[derive(Deserialize, Encode, Clone, Debug, PartialEq)]
-    pub struct JsonResult<'a> {
+    pub struct NextNonce<'a> {
         jsonrpc: &'a str,
         result: u32,
+        id: u32,
+    }
+
+    #[derive(Deserialize, Encode, Clone, Debug, PartialEq)]
+    pub struct TransactionHash<'a> {
+        jsonrpc: &'a str,
+        result: &'a str,
         id: u32,
     }
 
@@ -87,6 +94,7 @@ mod eth_holder {
     }
 
     pub fn sign_transaction(tx: TransactionObject, privkey: Vec<u8>) -> Result<Vec<u8>> {
+        //todo: ???
         let encoded = Encode::encode(&tx);
         let signature = sig::sign(&encoded, &privkey, sig::SigType::Ecdsa);
         Ok(signature);
@@ -109,13 +117,13 @@ mod eth_holder {
             return Err(Error::RequestFailed);
         }
         let body = response.body;
-        let (next_nonce, _): (JsonResult, usize) =
+        let (next_nonce, _): (NextNonce, usize) =
             serde_json_core::from_slice(&body).or(Err(Error::InvalidBody))?;
 
         Ok(next_nonce.result)
     }
     
-    pub fn send_raw_transaction(raw_tx: Vec<u8>) -> Result<H256> {
+    pub fn send_raw_transaction(raw_tx: Vec<u8>) -> Result<String> {
         let data = format!(
             r#"{{"id":0,"jsonrpc":"2.0","method":"eth_sendRawTransaction","params":["{}"]}}"#,
             raw_tx
@@ -133,9 +141,9 @@ mod eth_holder {
         }
 
         let body = response.body;
-        let (txRes, _): (JsonResult, usize) =
+        let (txRes, _): (TransactionHash, usize) =
             serde_json_core::from_slice(&body).or(Err(Error::InvalidBody))?;
-        Ok(txRes.result)
+        Ok(txRes.result.to_string())
     }
 
     impl EthHolder {
@@ -201,7 +209,7 @@ mod eth_holder {
 
         
         #[ink(message)]
-        pub fn send_Transaction(&self, chain: String, to: Address, value: U256) -> Result<H256>> {
+        pub fn send_Transaction(&self, chain: String, to: Address, value: U256) -> Result<String>> {
             if self.admin != self.env().caller() {
                 return Err(Error::NoPermissions);
             }
@@ -219,13 +227,13 @@ mod eth_holder {
             };
 
             //step1: get next nonce.
-            tx.nonce = get_next_nonce(&rpc_node, &self.address);
+            tx.nonce = get_next_nonce(&rpc_node, &self.address).unwarp();
 
             //step2: sign tx.
-            let rawTx = sign_transaction(&tx, &self.private_key);
+            let rawTx = sign_transaction(&tx, &self.private_key).unwrap();
 
             //step3: send raw transaction 
-            let txHash = send_raw_transaction(&rawTx);
+            let txHash = send_raw_transaction(&rawTx).unwrap();
 
             Ok(txHash);
         }
