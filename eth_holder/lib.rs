@@ -1,6 +1,7 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 #![feature(trace_macros)]
 
+use ink_env::AccountId;
 use ink_lang as ink;
 use pink_extension as pink;
 
@@ -33,6 +34,7 @@ mod eth_holder {
     #[derive(SpreadAllocate)]
     #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
     pub struct EthHolder {
+        admin: AccountId,
     	private_key: Vec<u8>,
     	public_key: Vec<u8>,
         address: Address,
@@ -44,54 +46,26 @@ mod eth_holder {
     }
 
     #[derive(Deserialize, Encode, Clone, Debug, PartialEq)]
-    pub struct NextNonce<'a> {
+    pub struct JsonResult<'a> {
         jsonrpc: &'a str,
         result: u32,
         id: u32,
     }
 
-    #[derive(Clone, Debug, PartialEq)]
-    pub struct TransactionParameters {
+    #[derive(Clone, Debug, PartialEq, Encode, Decode)]
+    pub struct TransactionObject {
         /// Transaction nonce (None for account transaction count)
         pub nonce: Option<U256>,
         /// To address
         pub to: Option<Address>,
+        /// Transferred value
+        pub value: U256,
         /// Supplied gas
         pub gas: U256,
         /// Gas price (None for estimated gas price)
         pub gas_price: Option<U256>,
-        /// Transferred value
-        pub value: U256,
         /// Data
-        //pub data: Bytes,
-        /// The chain ID (None for network ID)
-        pub chain_id: Option<u64>,
-        /// Transaction type, Some(1) for AccessList transaction, None for Legacy
-        //pub transaction_type: Option<U64>,
-        /// Access list
-        //pub access_list: Option<AccessList>,
-        /// Max fee per gas
-        pub max_fee_per_gas: Option<U256>,
-        /// miner bribe
-        pub max_priority_fee_per_gas: Option<U256>,
-    }
-
-    /// Data for offline signed transaction
-    #[derive(Clone, Debug, PartialEq)]
-        pub struct SignedTransaction {
-        /// The given message hash
-        pub message_hash: H256,
-        /// V value with chain replay protection.
-        pub v: u64,
-        /// R value.
-        pub r: H256,
-        /// S value.
-        pub s: H256,
-        /// The raw signed transaction ready to be sent with `send_raw_transaction`
-        //pub raw_transaction: Bytes,
-        /// The transaction hash for the RLP encoded transaction.
-        pub transaction_hash: H256,
-
+        pub data: Vec<u8>,
     }
 
     #[derive(Encode, Decode, Debug, PartialEq, Eq, Copy, Clone)]
@@ -112,10 +86,66 @@ mod eth_holder {
         array
     }
 
+    pub fn sign_transaction(tx: TransactionObject, privkey: Vec<u8>) -> Result<Vec<u8>> {
+        let encoded = Encode::encode(&tx);
+        let signature = sig::sign(&encoded, &privkey, sig::SigType::Ecdsa);
+        Ok(signature);
+    }
+
+    pub fn get_next_nonce(rpc_node: String, account_id: Address) -> Result<u32> {
+        let data = format!(
+            r#"{{"id":0,"jsonrpc":"2.0","method":"eth_getTransactionCount","params":["{}"]}}"#,
+            account_id.to_str()
+        )
+        .into_bytes();
+        let content_length = format!("{}", data.len());
+        let headers: Vec<(String, String)> = vec![
+            ("Content-Type".into(), "application/json".into()),
+            ("Content-Length".into(), content_length),
+        ];
+        // Get next nonce for the account through HTTP request
+        let response = http_post!(rpc_node, data, headers);
+        if response.status_code != 200 {
+            return Err(Error::RequestFailed);
+        }
+        let body = response.body;
+        let (next_nonce, _): (JsonResult, usize) =
+            serde_json_core::from_slice(&body).or(Err(Error::InvalidBody))?;
+
+        Ok(next_nonce.result)
+    }
+    
+    pub fn send_raw_transaction(raw_tx: Vec<u8>) -> Result<H256> {
+        let data = format!(
+            r#"{{"id":0,"jsonrpc":"2.0","method":"eth_sendRawTransaction","params":["{}"]}}"#,
+            raw_tx
+        )
+        .into_bytes();
+        let content_length = format!("{}", data.len());
+        let headers: Vec<(String, String)> = vec![
+            ("Content-Type".into(), "application/json".into()),
+            ("Content-Length".into(), content_length),
+        ];
+        // Get next nonce for the account through HTTP request
+        let response = http_post!(rpc_node, data, headers);
+        if response.status_code != 200 {
+            return Err(Error::RequestFailed);
+        }
+
+        let body = response.body;
+        let (txRes, _): (JsonResult, usize) =
+            serde_json_core::from_slice(&body).or(Err(Error::InvalidBody))?;
+        Ok(txRes.result)
+    }
+
     impl EthHolder {
         #[ink(constructor)]
         pub fn new() -> Self {
+            // Save sender as the contract admin
+            let admin = Self::env().caller();
+
             ink_lang::utils::initialize_contract(|contract: &mut Self| {
+                contract.admin = admin;
                 contract.api_key = Default::default();
                 contract.is_api_key_set = false;
             })
@@ -123,6 +153,9 @@ mod eth_holder {
     
         #[ink(message)]
         fn generate_account(&self) -> Result<Address> {
+            if self.admin != self.env().caller() {
+                return Err(Error::NoPermissions);
+            }
             let privkey = pink::ext().getrandom(32);
             let pubkey = sig::get_public_key(&privkey, sig::SigType::Ecdsa);
             if  pubkey.len() != 33 {
@@ -139,9 +172,8 @@ mod eth_holder {
             Ok(self.address)
         }
 
-        /// Set the RPC node for parachain.
         #[ink(message)]
-        pub fn set_chain_info(&mut self, chain: String, account_id: String) -> Result<()> {
+        pub fn set_chain_info(&mut self, chain: String) -> Result<()> {
             if self.admin != self.env().caller() {
                 return Err(Error::NoPermissions);
             }
@@ -154,90 +186,50 @@ mod eth_holder {
                 chain, self.api_key
             );
             self.rpc_nodes.insert(&chain, &http_endpoint);
-            self.chain_account_id.insert(&chain, &account_id);
             Ok(())
         }
 
-        /// Set the user api key for user account.
         #[ink(message)]
         pub fn set_api_key(&mut self, api_key: String) -> Result<()> {
             if self.admin != self.env().caller() {
                 return Err(Error::NoPermissions);
-          */  }
+            }
             self.api_key = api_key;
             self.is_api_key_set = true;
             Ok(())
         }
 
-        /// Get account's next nonce on a specific chain.
+        
         #[ink(message)]
-        pub fn get_next_nonce(&self, chain: String) -> Result<u32> {
+        pub fn send_Transaction(&self, chain: String, to: Address, value: U256) -> Result<H256>> {
             if self.admin != self.env().caller() {
                 return Err(Error::NoPermissions);
             }
-            let account_id = match self.chain_account_id.get(&chain) {
-                Some(account_id) => account_id,
-                None => return Err(Error::ChainNotConfigured),
-            };
             let rpc_node = match self.rpc_nodes.get(&chain) {
                 Some(rpc_node) => rpc_node,
                 None => return Err(Error::ChainNotConfigured),
             };
-            let data = format!(
-                r#"{{"id":0,"jsonrpc":"2.0","method":"eth_getTransactionCount","params":["{}"]}}"#,
-                account_id
-            )
-            .into_bytes();
-            let content_length = format!("{}", data.len());
-            let headers: Vec<(String, String)> = vec![
-                ("Content-Type".into(), "application/json".into()),
-                ("Content-Length".into(), content_length),
-            ];
-            // Get next nonce for the account through HTTP request
-            let response = http_post!(rpc_node, data, headers);
-            if response.status_code != 200 {
-                return Err(Error::RequestFailed);
-            }
-            let body = response.body;
-            let (next_nonce, _): (NextNonce, usize) =
-                serde_json_core::from_slice(&body).or(Err(Error::InvalidBody))?;
 
-            Ok(next_nonce.result)
+            let tx = TransactionObj {
+                to,
+                value,
+               //gas: ,
+               //gas_price:
+               //data:
+            };
+
+            //step1: get next nonce.
+            tx.nonce = get_next_nonce(&rpc_node, &self.address);
+
+            //step2: sign tx.
+            let rawTx = sign_transaction(&tx, &self.private_key);
+
+            //step3: send raw transaction 
+            let txHash = send_raw_transaction(&rawTx);
+
+            Ok(txHash);
         }
 
-/*        #[ink(message)]
-        pub fn send_rawTransaction(&self, chain: String, to: Address, nonce: U256, value: U256) -> Result<()> {
-            if self.admin != self.env().caller() {
-                return Err(Error::NoPermissions);
-            }
-            let account_id = match self.chain_account_id.get(&chain) {
-                Some(account_id) => account_id,
-                None => return Err(Error::ChainNotConfigured),
-            };
-            let rpc_node = match self.rpc_nodes.get(&chain) {
-                Some(rpc_node) => rpc_node,
-                None => return Err(Error::ChainNotConfigured),
-            };
-
-            //todo create tx.
-
-            let data = format!(
-                r#"{{"id":0,"jsonrpc":"2.0","method":"eth_sendRawTransaction","params":["{}"]}}"#,
-                account_id
-            )
-            .into_bytes();
-            let content_length = format!("{}", data.len());
-            let headers: Vec<(String, String)> = vec![
-                ("Content-Type".into(), "application/json".into()),
-                ("Content-Length".into(), content_length),
-            ];
-            // Get next nonce for the account through HTTP request
-            let response = http_post!(rpc_node, data, headers);
-            if response.status_code != 200 {
-                return Err(Error::RequestFailed);
-            }
-            Ok(());
-        }*/
     }
 
     #[cfg(test)]
