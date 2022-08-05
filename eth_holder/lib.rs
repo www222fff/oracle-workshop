@@ -21,7 +21,7 @@ mod eth_holder {
     use ink_env::hash::{Keccak256, HashOutput};
     use core::convert::TryInto;
     pub use primitive_types::{U256, H256};
-    use serde_json_core::from_slice;
+    use serde_json_core::{from_slice, to_slice};
 
     static LOGGER: Logger = Logger::with_max_level(Level::Info);
     pink::register_logger!(&LOGGER);
@@ -46,33 +46,10 @@ mod eth_holder {
     }
 
     #[derive(Deserialize, Encode, Clone, Debug, PartialEq)]
-    pub struct NextNonce<'a> {
-        jsonrpc: &'a str,
-        result: u32,
-        id: u32,
-    }
-
-    #[derive(Deserialize, Encode, Clone, Debug, PartialEq)]
-    pub struct TransactionHash<'a> {
+    pub struct RpcResult<'a> {
         jsonrpc: &'a str,
         result: &'a str,
         id: u32,
-    }
-
-    #[derive(Clone, Debug, PartialEq, Encode, Decode)]
-    pub struct TransactionObject {
-        /// Transaction nonce (None for account transaction count)
-        pub nonce: Option<U256>,
-        /// To address
-        pub to: Option<Address>,
-        /// Transferred value
-        pub value: U256,
-        /// Supplied gas
-        pub gas: U256,
-        /// Gas price (None for estimated gas price)
-        pub gas_price: Option<U256>,
-        /// Data
-        pub data: Vec<u8>,
     }
 
     #[derive(Encode, Decode, Debug, PartialEq, Eq, Copy, Clone)]
@@ -93,19 +70,7 @@ mod eth_holder {
         array
     }
 
-    pub fn sign_transaction(tx: TransactionObject, privkey: Vec<u8>) -> Result<Vec<u8>> {
-        //todo: ???
-        let encoded = Encode::encode(&tx);
-        let signature = sig::sign(&encoded, &privkey, sig::SigType::Ecdsa);
-        Ok(signature);
-    }
-
-    pub fn get_next_nonce(rpc_node: String, account_id: Address) -> Result<u32> {
-        let data = format!(
-            r#"{{"id":0,"jsonrpc":"2.0","method":"eth_getTransactionCount","params":["{}"]}}"#,
-            account_id.to_str()
-        )
-        .into_bytes();
+    fn call_rpc(data: String, account_id: Address) -> Result<RpcResult> {
         let content_length = format!("{}", data.len());
         let headers: Vec<(String, String)> = vec![
             ("Content-Type".into(), "application/json".into()),
@@ -117,33 +82,42 @@ mod eth_holder {
             return Err(Error::RequestFailed);
         }
         let body = response.body;
-        let (next_nonce, _): (NextNonce, usize) =
+        let (res, _): (RpcResult, usize) =
             serde_json_core::from_slice(&body).or(Err(Error::InvalidBody))?;
+        
+        Ok(res)
+    }
 
-        Ok(next_nonce.result)
+    fn get_next_nonce(rpc_node: String, account_id: Address) -> u32 {
+        let data = format!(
+            r#"{{"id":0,"jsonrpc":"2.0","method":"eth_getTransactionCount","params":["{}", "latest"]}}"#,
+            account_id.to_str()
+        )
+        .into_bytes();
+
+        let next_nonce = call_rpc(rpc_node, data).unwrap();
+        u32::from_str_radix(next_nonce.result, 16)
     }
     
-    pub fn send_raw_transaction(raw_tx: Vec<u8>) -> Result<String> {
+    fn get_gas_price(rpc_node: String, account_id: Address) -> u32 {
+        let data = format!(
+            r#"{{"id":0,"jsonrpc":"2.0","method":"eth_gasPrice","params":[]}}"#
+        )
+        .into_bytes();
+
+        let gas_price = call_rpc(rpc_node, data).unwrap();
+        u32::from_str_radix(gas_price.result, 16)
+    }
+
+    fn send_raw_transaction(raw_tx: Vec<u8>) -> String {
         let data = format!(
             r#"{{"id":0,"jsonrpc":"2.0","method":"eth_sendRawTransaction","params":["{}"]}}"#,
             raw_tx
         )
         .into_bytes();
-        let content_length = format!("{}", data.len());
-        let headers: Vec<(String, String)> = vec![
-            ("Content-Type".into(), "application/json".into()),
-            ("Content-Length".into(), content_length),
-        ];
-        // Get next nonce for the account through HTTP request
-        let response = http_post!(rpc_node, data, headers);
-        if response.status_code != 200 {
-            return Err(Error::RequestFailed);
-        }
 
-        let body = response.body;
-        let (txRes, _): (TransactionHash, usize) =
-            serde_json_core::from_slice(&body).or(Err(Error::InvalidBody))?;
-        Ok(txRes.result.to_string())
+        let txRes = call_rpc(rpc_node, data).unwrap();
+        txRes.result.to_string()
     }
 
     impl EthHolder {
@@ -160,7 +134,7 @@ mod eth_holder {
         }
     
         #[ink(message)]
-        fn generate_account(&self) -> Result<Address> {
+        pub fn generate_account(&self) -> Result<Address> {
             if self.admin != self.env().caller() {
                 return Err(Error::NoPermissions);
             }
@@ -209,7 +183,7 @@ mod eth_holder {
 
         
         #[ink(message)]
-        pub fn send_Transaction(&self, chain: String, to: Address, value: U256) -> Result<String>> {
+        pub fn send_transaction(&self, chain: String, to: Address, value: U256) -> Result<String>> {
             if self.admin != self.env().caller() {
                 return Err(Error::NoPermissions);
             }
@@ -218,26 +192,26 @@ mod eth_holder {
                 None => return Err(Error::ChainNotConfigured),
             };
 
+            //step1: get nonce and gas_price.
+            let nonce = get_next_nonce(&rpc_node, &self.address);
+            let gas_price = get_gas_price(&rpc_node, &self.address);
+
+/*
             let tx = TransactionObj {
                 to,
                 value,
-               //gas: ,
-               //gas_price:
-               //data:
+                nonce,
+                gas,
+                gas_price,
             };
-
-            //step1: get next nonce.
-            tx.nonce = get_next_nonce(&rpc_node, &self.address).unwarp();
-
             //step2: sign tx.
-            let rawTx = sign_transaction(&tx, &self.private_key).unwrap();
+            let signTx = sign_transaction(&tx, &self.private_key).unwrap();
 
             //step3: send raw transaction 
-            let txHash = send_raw_transaction(&rawTx).unwrap();
-
-            Ok(txHash);
+            let txHash = send_raw_transaction(&signTx.raw_transaction);
+*/
+            Ok("0x01");
         }
-
     }
 
     #[cfg(test)]
