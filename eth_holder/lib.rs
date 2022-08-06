@@ -1,27 +1,26 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 #![feature(trace_macros)]
 
-use ink_env::AccountId;
-use ink_lang as ink;
 use pink_extension as pink;
 
 #[pink::contract(env=PinkEnvironment)]
 mod eth_holder {
     use super::pink;
     use pink::logger::{Level, Logger};
-    use pink::{http_get, http_post, PinkEnvironment};
+    use pink::{http_post, PinkEnvironment};
     use ink_storage::{traits::SpreadAllocate, Mapping};
     use scale::{Decode, Encode};
     use pink::chain_extension::signing as sig;
     use ink_prelude::{
         string::{String, ToString},
         vec::{Vec},
+        vec,
         format,
     };
-    use ink_env::hash::{Keccak256, HashOutput};
-    use core::convert::TryInto;
+    use serde::Deserialize;
+    use serde_json_core::from_slice;
+
     pub use primitive_types::{U256, H256};
-    use serde_json_core::{from_slice, to_slice};
 
     static LOGGER: Logger = Logger::with_max_level(Level::Info);
     pink::register_logger!(&LOGGER);
@@ -61,6 +60,7 @@ mod eth_holder {
         InvalidSignature,
         RequestFailed,
         NoPermissions,
+        ChainNotConfigured,
         ApiKeyNotSet,
     }
 
@@ -70,7 +70,7 @@ mod eth_holder {
         array
     }
 
-    fn call_rpc(data: String, account_id: Address) -> Result<RpcResult> {
+    fn call_rpc(rpc_node: &String, data: Vec<u8>) -> Result<String> {
         let content_length = format!("{}", data.len());
         let headers: Vec<(String, String)> = vec![
             ("Content-Type".into(), "application/json".into()),
@@ -82,42 +82,42 @@ mod eth_holder {
             return Err(Error::RequestFailed);
         }
         let body = response.body;
-        let (res, _): (RpcResult, usize) =
-            serde_json_core::from_slice(&body).or(Err(Error::InvalidBody))?;
+        let (rpcRes, _): (RpcResult, usize) = from_slice(&body).or(Err(Error::InvalidBody))?;
         
-        Ok(res)
+        let result = rpcRes.result.to_string();
+        Ok(result)
     }
 
-    fn get_next_nonce(rpc_node: String, account_id: Address) -> u32 {
+    fn get_next_nonce(rpc_node: &String, account_id: Address) -> u32 {
         let data = format!(
-            r#"{{"id":0,"jsonrpc":"2.0","method":"eth_getTransactionCount","params":["{}", "latest"]}}"#,
-            account_id.to_str()
+            r#"{{"id":0,"jsonrpc":"2.0","method":"eth_getTransactionCount","params":["{:?}", "latest"]}}"#,
+            account_id
         )
         .into_bytes();
 
         let next_nonce = call_rpc(rpc_node, data).unwrap();
-        u32::from_str_radix(next_nonce.result, 16)
+        next_nonce.parse::<u32>().unwrap()
     }
     
-    fn get_gas_price(rpc_node: String, account_id: Address) -> u32 {
+    fn get_gas_price(rpc_node: &String, account_id: Address) -> u32 {
         let data = format!(
             r#"{{"id":0,"jsonrpc":"2.0","method":"eth_gasPrice","params":[]}}"#
         )
         .into_bytes();
 
         let gas_price = call_rpc(rpc_node, data).unwrap();
-        u32::from_str_radix(gas_price.result, 16)
+        gas_price.parse::<u32>().unwrap()
     }
 
-    fn send_raw_transaction(raw_tx: Vec<u8>) -> String {
+    fn send_raw_transaction(rpc_node: &String, raw_tx: Vec<u8>) -> String {
         let data = format!(
-            r#"{{"id":0,"jsonrpc":"2.0","method":"eth_sendRawTransaction","params":["{}"]}}"#,
+            r#"{{"id":0,"jsonrpc":"2.0","method":"eth_sendRawTransaction","params":["{:?}"]}}"#,
             raw_tx
         )
         .into_bytes();
 
         let txRes = call_rpc(rpc_node, data).unwrap();
-        txRes.result.to_string()
+        txRes
     }
 
     impl EthHolder {
@@ -134,7 +134,7 @@ mod eth_holder {
         }
     
         #[ink(message)]
-        pub fn generate_account(&self) -> Result<Address> {
+        pub fn generate_account(&mut self) -> Result<Address> {
             if self.admin != self.env().caller() {
                 return Err(Error::NoPermissions);
             }
@@ -183,7 +183,7 @@ mod eth_holder {
 
         
         #[ink(message)]
-        pub fn send_transaction(&self, chain: String, to: Address, value: U256) -> Result<String>> {
+        pub fn send_transaction(&self, chain: String, to: Address, value: U256) -> Result<String> {
             if self.admin != self.env().caller() {
                 return Err(Error::NoPermissions);
             }
@@ -193,8 +193,8 @@ mod eth_holder {
             };
 
             //step1: get nonce and gas_price.
-            let nonce = get_next_nonce(&rpc_node, &self.address);
-            let gas_price = get_gas_price(&rpc_node, &self.address);
+            let nonce = get_next_nonce(&rpc_node, self.address);
+            let gas_price = get_gas_price(&rpc_node, self.address);
 
 /*
             let tx = TransactionObj {
@@ -210,7 +210,7 @@ mod eth_holder {
             //step3: send raw transaction 
             let txHash = send_raw_transaction(&signTx.raw_transaction);
 */
-            Ok("0x01");
+            Ok("txHash".to_string())
         }
     }
 
@@ -252,11 +252,13 @@ mod eth_holder {
 
            let account = contract.call().generate_account().unwrap();
            println!("account: {:?}", account);
+           LOGGER::info!("account: {:?}", account);
 
            let EXPECTED_ETH_ADDRESS = [0x55,0x9b,0xfe,0xc7,0x5a,0xd4,0x0e,0x4f,
                                        0xf2,0x18,0x19,0xbc,0xd1,0xf6,0x58,0xcc,
                                        0x47,0x5c,0x41,0xba]; 
            assert_eq!(account.address, EXPECTED_ETH_ADDRESS);
-	}
+	   });
+        }
     }
 }
