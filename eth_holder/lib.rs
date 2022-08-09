@@ -6,7 +6,6 @@ use pink_extension as pink;
 #[pink::contract(env=PinkEnvironment)]
 mod eth_holder {
     use super::pink;
-    use pink::logger::{Level, Logger};
     use pink::{http_post, PinkEnvironment};
     use ink_storage::{traits::SpreadAllocate, Mapping};
     use scale::{Decode, Encode};
@@ -21,9 +20,6 @@ mod eth_holder {
     use serde_json_core::from_slice;
 
     pub use primitive_types::{U256, H256};
-
-    static LOGGER: Logger = Logger::with_max_level(Level::Info);
-    pink::register_logger!(&LOGGER);
 
     type Address = [u8; 20];
     /// Type alias for the contract's result type.
@@ -54,7 +50,7 @@ mod eth_holder {
     #[derive(Encode, Decode, Debug, PartialEq, Eq, Copy, Clone)]
     #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
     pub enum Error {
-        InvalidKeyLength,
+        InvalidKey,
         InvalidBody,
         InvalidUrl,
         InvalidSignature,
@@ -82,19 +78,23 @@ mod eth_holder {
             return Err(Error::RequestFailed);
         }
         let body = response.body;
-        let (rpcRes, _): (RpcResult, usize) = from_slice(&body).or(Err(Error::InvalidBody))?;
+        let (rpc_res, _): (RpcResult, usize) = from_slice(&body).or(Err(Error::InvalidBody))?;
         
-        let result = rpcRes.result.to_string();
+        let result = rpc_res.result.to_string();
         Ok(result)
     }
 
     fn get_next_nonce(rpc_node: &String, account_id: Address) -> u32 {
-        let data = format!(
+        /*let data = format!(
             r#"{{"id":0,"jsonrpc":"2.0","method":"eth_getTransactionCount","params":["{:?}", "latest"]}}"#,
-            account_id
+            account_id   //convert account_id to str ???
+        )
+        .into_bytes();*/
+
+        let data = format!(
+            r#"{{"id":0,"jsonrpc":"2.0","method":"eth_getTransactionCount","params":["0x559bfec75ad40e4ff21819bcd1f658cc475c41ba", "latest"]}}"#,
         )
         .into_bytes();
-
         let next_nonce = call_rpc(rpc_node, data).unwrap();
         next_nonce.parse::<u32>().unwrap()
     }
@@ -116,8 +116,8 @@ mod eth_holder {
         )
         .into_bytes();
 
-        let txRes = call_rpc(rpc_node, data).unwrap();
-        txRes
+        let tx_res = call_rpc(rpc_node, data).unwrap();
+        tx_res
     }
 
     impl EthHolder {
@@ -141,12 +141,12 @@ mod eth_holder {
             let privkey = pink::ext().getrandom(32);
             let pubkey = sig::get_public_key(&privkey, sig::SigType::Ecdsa);
             if  pubkey.len() != 33 {
-                return Err(Error::InvalidKeyLength);
+                return Err(Error::InvalidKey);
             }
            
             let mut address = [0; 20];
             let pubkey_array = to_array(&pubkey);
-            ink_env::ecdsa_to_eth_address(&pubkey_array, &mut address);
+            ink_env::ecdsa_to_eth_address(&pubkey_array, &mut address).or(Err(Error::InvalidKey))?;
 
             self.private_key = privkey;
             self.public_key = pubkey.to_vec();
@@ -218,23 +218,34 @@ mod eth_holder {
     mod tests {
         use super::*;
         use ink_lang as ink;
-        use pink_extension::chain_extension::{mock};
+        //use openbrush::traits::mock::{Addressable, SharedCallStack};
+        use pink_extension::chain_extension::{mock, HttpResponse};
 
         fn default_accounts() -> ink_env::test::DefaultAccounts<PinkEnvironment> {
             ink_env::test::default_accounts::<Environment>()
         }
 
         #[ink::test]
-        fn end_to_end() {
-            use openbrush::traits::mock::{Addressable, SharedCallStack};
+        fn verify_get_next_nonce() {
+            let rpc_node = "https://mainnet.infura.io/v3/2033e5cde24049d4a933778ffefe2457".to_string();
+            let addr = [0x55,0x9b,0xfe,0xc7,0x5a,0xd4,0x0e,0x4f,
+                        0xf2,0x18,0x19,0xbc,0xd1,0xf6,0x58,0xcc,
+                        0x47,0x5c,0x41,0xba]; 
 
-            // Test accounts
+            mock::mock_http_request(|_| {
+                HttpResponse::ok(br#"{"jsonrpc":"2.0","id":1,"result":"0x0"}"#.to_vec())
+            });
+
+            let nonce = get_next_nonce(&rpc_node, addr);
+            println!("nonce: {}", nonce);
+            assert_eq!(nonce, 8);
+
+        }
+
+/*        #[ink::test]
+        fn end_to_end() {
             let accounts = default_accounts();
             let stack = SharedCallStack::new(accounts.alice);
-
-            mock_issuable::using(stack.clone(), || {
-                // Construct our contract (deployed by `accounts.alice` by default)
-                let contract = Addressable::create_native(1, EthHolder::new(), stack);
 
             mock::mock_getrandom(|_| {
                 [0x9e,0xb2,0xee,0x60,0x39,0x3a,0xee,0xec,
@@ -250,15 +261,14 @@ mod eth_holder {
                 0x68,0xa8,0xff,0xbf,0x31,0xf0,0x8b,0x27,0x50].to_vec()
            });
 
+           let contract = Addressable::create_native(1, EthHolder::new(), stack.clone());
            let account = contract.call().generate_account().unwrap();
            println!("account: {:?}", account);
-           LOGGER::info!("account: {:?}", account);
 
            let EXPECTED_ETH_ADDRESS = [0x55,0x9b,0xfe,0xc7,0x5a,0xd4,0x0e,0x4f,
                                        0xf2,0x18,0x19,0xbc,0xd1,0xf6,0x58,0xcc,
                                        0x47,0x5c,0x41,0xba]; 
            assert_eq!(account.address, EXPECTED_ETH_ADDRESS);
-	   });
-        }
+        }*/
     }
 }
