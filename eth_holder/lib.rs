@@ -155,6 +155,16 @@ mod eth_holder {
         }
 
         #[ink(message)]
+        pub fn set_api_key(&mut self, api_key: String) -> Result<()> {
+            if self.admin != self.env().caller() {
+                return Err(Error::NoPermissions);
+            }
+            self.api_key = api_key;
+            self.is_api_key_set = true;
+            Ok(())
+        }
+
+        #[ink(message)]
         pub fn set_chain_info(&mut self, chain: String) -> Result<()> {
             if self.admin != self.env().caller() {
                 return Err(Error::NoPermissions);
@@ -171,17 +181,6 @@ mod eth_holder {
             Ok(())
         }
 
-        #[ink(message)]
-        pub fn set_api_key(&mut self, api_key: String) -> Result<()> {
-            if self.admin != self.env().caller() {
-                return Err(Error::NoPermissions);
-            }
-            self.api_key = api_key;
-            self.is_api_key_set = true;
-            Ok(())
-        }
-
-        
         #[ink(message)]
         pub fn send_transaction(&self, chain: String, to: Address, value: U256) -> Result<String> {
             if self.admin != self.env().caller() {
