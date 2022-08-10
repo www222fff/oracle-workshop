@@ -24,6 +24,8 @@ primitive-types = { version = "0.11.1", default-features = false, features = ["c
 serde-json-core = { version = "0.4.0", default-features = false }
 serde = { version = "1.0.137", default-features = false, features = ["derive", "alloc"]}
 
+hex-literal = "0.3.4"
+
 [dev-dependencies]
 environmental = { path = "../utils/environmental", default-features = false }
 

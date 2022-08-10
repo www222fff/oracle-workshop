@@ -18,6 +18,7 @@ mod eth_holder {
     };
     use serde::Deserialize;
     use serde_json_core::from_slice;
+    use core::fmt::Write;
 
     pub use primitive_types::{U256, H256};
 
@@ -72,7 +73,7 @@ mod eth_holder {
             ("Content-Type".into(), "application/json".into()),
             ("Content-Length".into(), content_length),
         ];
-        // Get next nonce for the account through HTTP request
+
         let response = http_post!(rpc_node, data, headers);
         if response.status_code != 200 {
             return Err(Error::RequestFailed);
@@ -84,22 +85,23 @@ mod eth_holder {
         Ok(result)
     }
 
-    fn get_next_nonce(rpc_node: &String, account_id: Address) -> u32 {
-        /*let data = format!(
-            r#"{{"id":0,"jsonrpc":"2.0","method":"eth_getTransactionCount","params":["{:?}", "latest"]}}"#,
-            account_id   //convert account_id to str ???
-        )
-        .into_bytes();*/
+    fn get_next_nonce(rpc_node: &String, account: Address) -> u32 {
+        let mut account_str = "0x".to_string();        
+        for a in account.iter() {
+            write!(account_str, "{:02x}", a);
+        }
 
         let data = format!(
-            r#"{{"id":0,"jsonrpc":"2.0","method":"eth_getTransactionCount","params":["0x559bfec75ad40e4ff21819bcd1f658cc475c41ba", "latest"]}}"#,
+            r#"{{"id":0,"jsonrpc":"2.0","method":"eth_getTransactionCount","params":["{:?}", "latest"]}}"#,
+            account_str
         )
         .into_bytes();
+
         let next_nonce = call_rpc(rpc_node, data).unwrap();
         next_nonce.parse::<u32>().unwrap()
     }
     
-    fn get_gas_price(rpc_node: &String, account_id: Address) -> u32 {
+    fn get_gas_price(rpc_node: &String) -> u32 {
         let data = format!(
             r#"{{"id":0,"jsonrpc":"2.0","method":"eth_gasPrice","params":[]}}"#
         )
@@ -110,9 +112,14 @@ mod eth_holder {
     }
 
     fn send_raw_transaction(rpc_node: &String, raw_tx: Vec<u8>) -> String {
+        let mut raw_tx_str = "0x".to_string();        
+        for a in raw_tx.iter() {
+            write!(raw_tx_str, "{:02x}", a);
+        }
+
         let data = format!(
             r#"{{"id":0,"jsonrpc":"2.0","method":"eth_sendRawTransaction","params":["{:?}"]}}"#,
-            raw_tx
+            raw_tx_str
         )
         .into_bytes();
 
@@ -193,9 +200,10 @@ mod eth_holder {
 
             //step1: get nonce and gas_price.
             let nonce = get_next_nonce(&rpc_node, self.address);
-            let gas_price = get_gas_price(&rpc_node, self.address);
+            let gas_price = get_gas_price(&rpc_node);
 
-/*
+
+            /* TBD
             let tx = TransactionObj {
                 to,
                 value,
@@ -208,7 +216,8 @@ mod eth_holder {
 
             //step3: send raw transaction 
             let txHash = send_raw_transaction(&signTx.raw_transaction);
-*/
+            */
+
             Ok("txHash".to_string())
         }
     }
@@ -217,8 +226,9 @@ mod eth_holder {
     mod tests {
         use super::*;
         use ink_lang as ink;
-        //use openbrush::traits::mock::{Addressable, SharedCallStack};
+        use openbrush::traits::mock::{Addressable, SharedCallStack};
         use pink_extension::chain_extension::{mock, HttpResponse};
+        use hex_literal::hex;
 
         fn default_accounts() -> ink_env::test::DefaultAccounts<PinkEnvironment> {
             ink_env::test::default_accounts::<Environment>()
@@ -227,12 +237,10 @@ mod eth_holder {
         #[ink::test]
         fn verify_get_next_nonce() {
             let rpc_node = "https://mainnet.infura.io/v3/2033e5cde24049d4a933778ffefe2457".to_string();
-            let addr = [0x55,0x9b,0xfe,0xc7,0x5a,0xd4,0x0e,0x4f,
-                        0xf2,0x18,0x19,0xbc,0xd1,0xf6,0x58,0xcc,
-                        0x47,0x5c,0x41,0xba]; 
+            let addr = hex!("559bfec75ad40e4ff21819bcd1f658cc475c41ba"); 
 
             mock::mock_http_request(|_| {
-                HttpResponse::ok(br#"{"jsonrpc":"2.0","id":1,"result":"0x0"}"#.to_vec())
+                HttpResponse::ok(br#"{"jsonrpc":"2.0","id":1,"result":"0x8"}"#.to_vec())
             });
 
             let nonce = get_next_nonce(&rpc_node, addr);
@@ -241,33 +249,31 @@ mod eth_holder {
 
         }
 
-/*        #[ink::test]
+        #[ink::test]
         fn end_to_end() {
             let accounts = default_accounts();
             let stack = SharedCallStack::new(accounts.alice);
 
             mock::mock_getrandom(|_| {
                 [0x9e,0xb2,0xee,0x60,0x39,0x3a,0xee,0xec,
-                0x31,0x70,0x9e,0x25,0x6d,0x44,0x8c,0x9e,
-                0x40,0xfa,0x64,0x23,0x3a,0xbf,0x12,0x31,
-                0x8f,0x63,0x72,0x6e,0x9c,0x41,0x7b,0x69].to_vec()
+                 0x31,0x70,0x9e,0x25,0x6d,0x44,0x8c,0x9e,
+                 0x40,0xfa,0x64,0x23,0x3a,0xbf,0x12,0x31,
+                 0x8f,0x63,0x72,0x6e,0x9c,0x41,0x7b,0x69].to_vec()
             });
 
             mock::mock_get_public_key(|_| {
                 [0x02,0x62,0x20,0x26,0x8e,0x36,0xda,0x1d,
-                0x79,0x9a,0x67,0xc3,0xac,0x5e,0xca,0xc2,
-                0x24,0xb4,0x5c,0xea,0x2b,0x04,0x7d,0x1b,
-                0x68,0xa8,0xff,0xbf,0x31,0xf0,0x8b,0x27,0x50].to_vec()
+                 0x79,0x9a,0x67,0xc3,0xac,0x5e,0xca,0xc2,
+                 0x24,0xb4,0x5c,0xea,0x2b,0x04,0x7d,0x1b,
+                 0x68,0xa8,0xff,0xbf,0x31,0xf0,0x8b,0x27,0x50].to_vec()
            });
 
            let contract = Addressable::create_native(1, EthHolder::new(), stack.clone());
-           let account = contract.call().generate_account().unwrap();
+           let account = contract.call_mut().generate_account().unwrap();
            println!("account: {:?}", account);
 
-           let EXPECTED_ETH_ADDRESS = [0x55,0x9b,0xfe,0xc7,0x5a,0xd4,0x0e,0x4f,
-                                       0xf2,0x18,0x19,0xbc,0xd1,0xf6,0x58,0xcc,
-                                       0x47,0x5c,0x41,0xba]; 
-           assert_eq!(account.address, EXPECTED_ETH_ADDRESS);
-        }*/
+           let EXPECTED_ETH_ADDRESS = hex!("559bfec75ad40e4ff21819bcd1f658cc475c41ba");
+           assert_eq!(account, EXPECTED_ETH_ADDRESS);
+        }
     }
 }
