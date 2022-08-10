@@ -19,6 +19,7 @@ mod eth_holder {
     use serde::Deserialize;
     use serde_json_core::from_slice;
     use core::fmt::Write;
+    use hex::FromHex;
 
     pub use primitive_types::{U256, H256};
 
@@ -61,10 +62,18 @@ mod eth_holder {
         ApiKeyNotSet,
     }
 
-    fn to_array<T>(v: &Vec<T>) -> [T; 33] where T: Copy {
+    fn vec_to_array<T>(v: &Vec<T>) -> [T; 33] where T: Copy {
         let slice = v.as_slice();
         let array: [T; 33] = slice.try_into().expect("Expected a Vec of length 33");
         array
+    }
+
+    fn vec_to_hex_string(v: &Vec<u8>) -> String {
+        let mut res = "0x".to_string();        
+        for a in v.iter() {
+            write!(res, "{:02x}", a);
+        }
+        res
     }
 
     fn call_rpc(rpc_node: &String, data: Vec<u8>) -> Result<String> {
@@ -85,37 +94,32 @@ mod eth_holder {
         Ok(result)
     }
 
-    fn get_next_nonce(rpc_node: &String, account: Address) -> u32 {
-        let mut account_str = "0x".to_string();        
-        for a in account.iter() {
-            write!(account_str, "{:02x}", a);
-        }
-
+    fn get_next_nonce(rpc_node: &String, account: Address) -> u64 {
+        let account_str = vec_to_hex_string(&account.to_vec());
         let data = format!(
             r#"{{"id":0,"jsonrpc":"2.0","method":"eth_getTransactionCount","params":["{:?}", "latest"]}}"#,
             account_str
         )
         .into_bytes();
 
-        let next_nonce = call_rpc(rpc_node, data).unwrap();
-        next_nonce.parse::<u32>().unwrap()
+        let result = call_rpc(rpc_node, data).unwrap();
+        let nonce:String = result.chars().skip(2).collect();
+        u64::from_str_radix(&nonce, 16).unwrap()
     }
     
-    fn get_gas_price(rpc_node: &String) -> u32 {
+    fn get_gas_price(rpc_node: &String) -> u64 {
         let data = format!(
             r#"{{"id":0,"jsonrpc":"2.0","method":"eth_gasPrice","params":[]}}"#
         )
         .into_bytes();
 
-        let gas_price = call_rpc(rpc_node, data).unwrap();
-        gas_price.parse::<u32>().unwrap()
+        let result = call_rpc(rpc_node, data).unwrap();
+        let gas_price:String = result.chars().skip(2).collect();
+        u64::from_str_radix(&gas_price, 16).unwrap()
     }
 
     fn send_raw_transaction(rpc_node: &String, raw_tx: Vec<u8>) -> String {
-        let mut raw_tx_str = "0x".to_string();        
-        for a in raw_tx.iter() {
-            write!(raw_tx_str, "{:02x}", a);
-        }
+        let raw_tx_str = vec_to_hex_string(&raw_tx);
 
         let data = format!(
             r#"{{"id":0,"jsonrpc":"2.0","method":"eth_sendRawTransaction","params":["{:?}"]}}"#,
@@ -152,13 +156,18 @@ mod eth_holder {
             }
            
             let mut address = [0; 20];
-            let pubkey_array = to_array(&pubkey);
+            let pubkey_array = vec_to_array(&pubkey);
             ink_env::ecdsa_to_eth_address(&pubkey_array, &mut address).or(Err(Error::InvalidKey))?;
 
             self.private_key = privkey;
             self.public_key = pubkey.to_vec();
             self.address = address;
-            Ok(self.address)
+            Ok(address)
+        }
+
+        #[ink(message)]
+        pub fn get_account(&self) -> String {
+            format!("privKey:{:?},pubkey:{:?},address:{:?}", self.private_key, self.public_key, self.address)
         }
 
         #[ink(message)]
@@ -240,12 +249,24 @@ mod eth_holder {
             let addr = hex!("559bfec75ad40e4ff21819bcd1f658cc475c41ba"); 
 
             mock::mock_http_request(|_| {
-                HttpResponse::ok(br#"{"jsonrpc":"2.0","id":1,"result":"0x8"}"#.to_vec())
+                HttpResponse::ok(br#"{"jsonrpc":"2.0","id":1,"result":"0x8B"}"#.to_vec())
             });
-
             let nonce = get_next_nonce(&rpc_node, addr);
             println!("nonce: {}", nonce);
-            assert_eq!(nonce, 8);
+            assert_eq!(nonce, 0x8B);
+
+        }
+
+        #[ink::test]
+        fn verify_get_gas_price() {
+            let rpc_node = "https://mainnet.infura.io/v3/2033e5cde24049d4a933778ffefe2457".to_string();
+
+            mock::mock_http_request(|_| {
+                HttpResponse::ok(br#"{"jsonrpc":"2.0","id":1,"result":"0x1dfd14000"}"#.to_vec())
+            });
+            let gas_price = get_gas_price(&rpc_node);
+            println!("gas_price: {}", gas_price);
+            assert_eq!(gas_price, 8049999872);
 
         }
 
