@@ -31,7 +31,6 @@ mod eth_holder {
     #[derive(SpreadAllocate)]
     #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
     pub struct EthHolder {
-        admin: AccountId,
     	private_key: Vec<u8>,
     	public_key: Vec<u8>,
         address: Address,
@@ -134,11 +133,7 @@ mod eth_holder {
     impl EthHolder {
         #[ink(constructor)]
         pub fn new() -> Self {
-            // Save sender as the contract admin
-            let admin = Self::env().caller();
-
             ink_lang::utils::initialize_contract(|contract: &mut Self| {
-                contract.admin = admin;
                 contract.api_key = Default::default();
                 contract.is_api_key_set = false;
             })
@@ -146,9 +141,6 @@ mod eth_holder {
     
         #[ink(message)]
         pub fn generate_account(&mut self) -> Result<Address> {
-            if self.admin != self.env().caller() {
-                return Err(Error::NoPermissions);
-            }
             let privkey = pink::ext().getrandom(32);
             let pubkey = sig::get_public_key(&privkey, sig::SigType::Ecdsa);
             if  pubkey.len() != 33 {
@@ -167,14 +159,14 @@ mod eth_holder {
 
         #[ink(message)]
         pub fn get_account(&self) -> String {
-            format!("privKey:{:?},pubkey:{:?},address:{:?}", self.private_key, self.public_key, self.address)
+            format!("privKey:{:?},pubkey:{:?},address:{:?}",
+                    vec_to_hex_string(&self.private_key),
+                    vec_to_hex_string(&self.public_key),
+                    vec_to_hex_string(&self.address.to_vec()))
         }
 
         #[ink(message)]
         pub fn set_api_key(&mut self, api_key: String) -> Result<()> {
-            if self.admin != self.env().caller() {
-                return Err(Error::NoPermissions);
-            }
             self.api_key = api_key;
             self.is_api_key_set = true;
             Ok(())
@@ -182,9 +174,6 @@ mod eth_holder {
 
         #[ink(message)]
         pub fn set_chain_info(&mut self, chain: String) -> Result<()> {
-            if self.admin != self.env().caller() {
-                return Err(Error::NoPermissions);
-            }
             if !self.is_api_key_set {
                 return Err(Error::ApiKeyNotSet);
             }
@@ -199,9 +188,6 @@ mod eth_holder {
 
         #[ink(message)]
         pub fn send_transaction(&self, chain: String, to: Address, value: U256) -> Result<String> {
-            if self.admin != self.env().caller() {
-                return Err(Error::NoPermissions);
-            }
             let rpc_node = match self.rpc_nodes.get(&chain) {
                 Some(rpc_node) => rpc_node,
                 None => return Err(Error::ChainNotConfigured),
