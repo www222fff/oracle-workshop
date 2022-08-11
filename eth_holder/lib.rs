@@ -2,10 +2,11 @@
 #![feature(trace_macros)]
 
 use pink_extension as pink;
+use hex_literal::hex;
 
 #[pink::contract(env=PinkEnvironment)]
 mod eth_holder {
-    use super::pink;
+    use super::*;
     use pink::{http_post, PinkEnvironment};
     use ink_storage::{traits::SpreadAllocate, Mapping};
     use scale::{Decode, Encode};
@@ -19,7 +20,6 @@ mod eth_holder {
     use serde::Deserialize;
     use serde_json_core::from_slice;
     use core::fmt::Write;
-    use hex::FromHex;
 
     pub use primitive_types::{U256, H256};
 
@@ -141,7 +141,10 @@ mod eth_holder {
     
         #[ink(message)]
         pub fn generate_account(&mut self) -> Result<Address> {
-            let privkey = pink::ext().getrandom(32);
+
+            let privkey = hex!("9eb2ee60393aeeec31709e256d448c9e40fa64233abf12318f63726e9c417b69").to_vec(); 
+
+          //let privkey = pink::ext().getrandom(32);
             let pubkey = sig::get_public_key(&privkey, sig::SigType::Ecdsa);
             if  pubkey.len() != 33 {
                 return Err(Error::InvalidKey);
@@ -159,7 +162,7 @@ mod eth_holder {
 
         #[ink(message)]
         pub fn get_account(&self) -> String {
-            format!("privKey:{:?},pubkey:{:?},address:{:?}",
+            format!("privKey:{:?},\npubkey:{:?},\naddress:{:?}",
                     vec_to_hex_string(&self.private_key),
                     vec_to_hex_string(&self.public_key),
                     vec_to_hex_string(&self.address.to_vec()))
@@ -184,6 +187,16 @@ mod eth_holder {
             );
             self.rpc_nodes.insert(&chain, &http_endpoint);
             Ok(())
+        }
+
+        #[ink(message)]
+        pub fn get_nonce(&self, chain: String) -> Result<u64> {
+            let rpc_node = match self.rpc_nodes.get(&chain) {
+                Some(rpc_node) => rpc_node,
+                None => return Err(Error::ChainNotConfigured),
+            };
+            let nonce = get_next_nonce(&rpc_node, self.address);
+            Ok(nonce)
         }
 
         #[ink(message)]
@@ -223,7 +236,6 @@ mod eth_holder {
         use ink_lang as ink;
         use openbrush::traits::mock::{Addressable, SharedCallStack};
         use pink_extension::chain_extension::{mock, HttpResponse};
-        use hex_literal::hex;
 
         fn default_accounts() -> ink_env::test::DefaultAccounts<PinkEnvironment> {
             ink_env::test::default_accounts::<Environment>()
@@ -261,26 +273,15 @@ mod eth_holder {
             let accounts = default_accounts();
             let stack = SharedCallStack::new(accounts.alice);
 
-            mock::mock_getrandom(|_| {
-                [0x9e,0xb2,0xee,0x60,0x39,0x3a,0xee,0xec,
-                 0x31,0x70,0x9e,0x25,0x6d,0x44,0x8c,0x9e,
-                 0x40,0xfa,0x64,0x23,0x3a,0xbf,0x12,0x31,
-                 0x8f,0x63,0x72,0x6e,0x9c,0x41,0x7b,0x69].to_vec()
-            });
-
-            mock::mock_get_public_key(|_| {
-                [0x02,0x62,0x20,0x26,0x8e,0x36,0xda,0x1d,
-                 0x79,0x9a,0x67,0xc3,0xac,0x5e,0xca,0xc2,
-                 0x24,0xb4,0x5c,0xea,0x2b,0x04,0x7d,0x1b,
-                 0x68,0xa8,0xff,0xbf,0x31,0xf0,0x8b,0x27,0x50].to_vec()
-           });
+            mock::mock_getrandom(|_| {hex!("9eb2ee60393aeeec31709e256d448c9e40fa64233abf12318f63726e9c417b69").to_vec()});
+            mock::mock_get_public_key(|_| {hex!("026220268e36da1d799a67c3ac5ecac224b45cea2b047d1b68a8ffbf31f08b2750").to_vec()});
 
            let contract = Addressable::create_native(1, EthHolder::new(), stack.clone());
-           let account = contract.call_mut().generate_account().unwrap();
-           println!("account: {:?}", account);
+           let addr = contract.call_mut().generate_account().unwrap();
+           println!("addr: {:?}", addr);
 
-           let EXPECTED_ETH_ADDRESS = hex!("559bfec75ad40e4ff21819bcd1f658cc475c41ba");
-           assert_eq!(account, EXPECTED_ETH_ADDRESS);
+           let expect_addr = hex!("559bfec75ad40e4ff21819bcd1f658cc475c41ba");
+           assert_eq!(addr, expect_addr);
         }
     }
 }
