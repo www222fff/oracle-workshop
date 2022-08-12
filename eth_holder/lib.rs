@@ -96,12 +96,12 @@ mod eth_holder {
     fn get_next_nonce(rpc_node: &String, account: Address) -> u64 {
         let account_str = vec_to_hex_string(&account.to_vec());
         let data = format!(
-            r#"{{"id":0,"jsonrpc":"2.0","method":"eth_getTransactionCount","params":["{:?}", "latest"]}}"#,
+            r#"{{"id":0,"jsonrpc":"2.0","method":"eth_getTransactionCount","params":[{:?}, "latest"]}}"#,
             account_str
-        )
-        .into_bytes();
+        );
+        println!("get_nonce request: {:?}", data);
 
-        let result = call_rpc(rpc_node, data).unwrap();
+        let result = call_rpc(rpc_node, data.into_bytes()).unwrap();
         let nonce:String = result.chars().skip(2).collect();
         u64::from_str_radix(&nonce, 16).unwrap()
     }
@@ -121,7 +121,7 @@ mod eth_holder {
         let raw_tx_str = vec_to_hex_string(&raw_tx);
 
         let data = format!(
-            r#"{{"id":0,"jsonrpc":"2.0","method":"eth_sendRawTransaction","params":["{:?}"]}}"#,
+            r#"{{"id":0,"jsonrpc":"2.0","method":"eth_sendRawTransaction","params":[{:?}]}}"#,
             raw_tx_str
         )
         .into_bytes();
@@ -144,7 +144,7 @@ mod eth_holder {
 
             let privkey = hex!("9eb2ee60393aeeec31709e256d448c9e40fa64233abf12318f63726e9c417b69").to_vec(); 
 
-          //let privkey = pink::ext().getrandom(32);
+            //let privkey = pink::ext().getrandom(32);
             let pubkey = sig::get_public_key(&privkey, sig::SigType::Ecdsa);
             if  pubkey.len() != 33 {
                 return Err(Error::InvalidKey);
@@ -200,6 +200,16 @@ mod eth_holder {
         }
 
         #[ink(message)]
+        pub fn get_gas_price(&self, chain: String) -> Result<u64> {
+            let rpc_node = match self.rpc_nodes.get(&chain) {
+                Some(rpc_node) => rpc_node,
+                None => return Err(Error::ChainNotConfigured),
+            };
+            let gas_price = get_gas_price(&rpc_node);
+            Ok(gas_price)
+        }
+
+        #[ink(message)]
         pub fn send_transaction(&self, chain: String, to: Address, value: U256) -> Result<String> {
             let rpc_node = match self.rpc_nodes.get(&chain) {
                 Some(rpc_node) => rpc_node,
@@ -242,46 +252,40 @@ mod eth_holder {
         }
 
         #[ink::test]
-        fn verify_get_next_nonce() {
-            let rpc_node = "https://mainnet.infura.io/v3/2033e5cde24049d4a933778ffefe2457".to_string();
-            let addr = hex!("559bfec75ad40e4ff21819bcd1f658cc475c41ba"); 
-
-            mock::mock_http_request(|_| {
-                HttpResponse::ok(br#"{"jsonrpc":"2.0","id":1,"result":"0x8B"}"#.to_vec())
-            });
-            let nonce = get_next_nonce(&rpc_node, addr);
-            println!("nonce: {}", nonce);
-            assert_eq!(nonce, 0x8B);
-
-        }
-
-        #[ink::test]
-        fn verify_get_gas_price() {
-            let rpc_node = "https://mainnet.infura.io/v3/2033e5cde24049d4a933778ffefe2457".to_string();
-
-            mock::mock_http_request(|_| {
-                HttpResponse::ok(br#"{"jsonrpc":"2.0","id":1,"result":"0x1dfd14000"}"#.to_vec())
-            });
-            let gas_price = get_gas_price(&rpc_node);
-            println!("gas_price: {}", gas_price);
-            assert_eq!(gas_price, 8049999872);
-
-        }
-
-        #[ink::test]
         fn end_to_end() {
             let accounts = default_accounts();
             let stack = SharedCallStack::new(accounts.alice);
+            let contract = Addressable::create_native(1, EthHolder::new(), stack.clone());
 
+            //generate account
             mock::mock_getrandom(|_| {hex!("9eb2ee60393aeeec31709e256d448c9e40fa64233abf12318f63726e9c417b69").to_vec()});
             mock::mock_get_public_key(|_| {hex!("026220268e36da1d799a67c3ac5ecac224b45cea2b047d1b68a8ffbf31f08b2750").to_vec()});
+            let addr = contract.call_mut().generate_account().unwrap();
+            println!("addr: {:?}", addr);
+            let expect_addr = hex!("559bfec75ad40e4ff21819bcd1f658cc475c41ba");
+            assert_eq!(addr, expect_addr);
 
-           let contract = Addressable::create_native(1, EthHolder::new(), stack.clone());
-           let addr = contract.call_mut().generate_account().unwrap();
-           println!("addr: {:?}", addr);
+            //construct chain uri
+            let api_key = "2033e5cde24049d4a933778ffefe2457";
+            let chain = "rinkeby";
+            contract.call_mut().set_api_key(api_key.to_string());
+            contract.call_mut().set_chain_info(chain.to_string());
 
-           let expect_addr = hex!("559bfec75ad40e4ff21819bcd1f658cc475c41ba");
-           assert_eq!(addr, expect_addr);
+            //get nonce
+            mock::mock_http_request(|_| {
+                HttpResponse::ok(br#"{"jsonrpc":"2.0","id":1,"result":"0x8B"}"#.to_vec())
+            });
+            let nonce = contract.call().get_nonce(chain.to_string()).unwrap();
+            println!("nonce: {}", nonce);
+            assert_eq!(nonce, 0x8B);
+
+            //get gas price
+            mock::mock_http_request(|_| {
+                HttpResponse::ok(br#"{"jsonrpc":"2.0","id":1,"result":"0x1dfd14000"}"#.to_vec())
+            });
+            let gas_price = contract.call().get_gas_price(chain.to_string()).unwrap();
+            println!("gas_price: {}", gas_price);
+            assert_eq!(gas_price, 8049999872);
         }
     }
 }
