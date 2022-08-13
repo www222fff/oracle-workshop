@@ -99,7 +99,6 @@ mod eth_holder {
             r#"{{"id":0,"jsonrpc":"2.0","method":"eth_getTransactionCount","params":[{:?}, "latest"]}}"#,
             account_str
         );
-        println!("get_nonce request: {:?}", data);
 
         let result = call_rpc(rpc_node, data.into_bytes()).unwrap();
         let nonce:String = result.chars().skip(2).collect();
