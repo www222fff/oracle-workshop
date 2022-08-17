@@ -31,10 +31,6 @@ mod eth_holder {
     #[derive(SpreadAllocate)]
     #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
     pub struct EthHolder {
-    	private_key: Vec<u8>,
-    	public_key: Vec<u8>,
-        address: Address,
-
         rpc_nodes: Mapping<String, String>,
         chain_account_id: Mapping<String, String>,
         api_key: String,
@@ -60,6 +56,17 @@ mod eth_holder {
         ChainNotConfigured,
         ApiKeyNotSet,
     }
+
+    pub fn derive_account(salt: &[u8]) -> Result<(Vec<u8>, Vec<u8>, Address)> {
+        let privkey = sig::derive_sr25519_key(salt);
+        let pubkey = sig::get_public_key(&privkey, sig::SigType::Ecdsa);
+        let mut address = [0; 20];
+        let pubkey_array = vec_to_array(&pubkey);
+        ink_env::ecdsa_to_eth_address(&pubkey_array, &mut address).or(Err(Error::InvalidKey))?;
+
+        Ok((privkey, pubkey, address))
+    }
+
 
     fn vec_to_array<T>(v: &Vec<T>) -> [T; 33] where T: Copy {
         let slice = v.as_slice();
@@ -139,32 +146,16 @@ mod eth_holder {
         }
     
         #[ink(message)]
-        pub fn generate_account(&mut self) -> Result<Address> {
+        pub fn get_account(&self) -> Result<String> {
+            let caller = Self::env().caller();
+            let salt = caller.as_ref();
+            let (privkey, pubkey, address) = derive_account(salt).unwrap();
 
-            let privkey = hex!("9eb2ee60393aeeec31709e256d448c9e40fa64233abf12318f63726e9c417b69").to_vec(); 
-
-            //let privkey = pink::ext().getrandom(32);
-            let pubkey = sig::get_public_key(&privkey, sig::SigType::Ecdsa);
-            if  pubkey.len() != 33 {
-                return Err(Error::InvalidKey);
-            }
-           
-            let mut address = [0; 20];
-            let pubkey_array = vec_to_array(&pubkey);
-            ink_env::ecdsa_to_eth_address(&pubkey_array, &mut address).or(Err(Error::InvalidKey))?;
-
-            self.private_key = privkey;
-            self.public_key = pubkey.to_vec();
-            self.address = address;
-            Ok(address)
-        }
-
-        #[ink(message)]
-        pub fn get_account(&self) -> String {
-            format!("privKey:{:?},\npubkey:{:?},\naddress:{:?}",
-                    vec_to_hex_string(&self.private_key),
-                    vec_to_hex_string(&self.public_key),
-                    vec_to_hex_string(&self.address.to_vec()))
+            let account = format!("privKey:{:?},\npubkey:{:?},\naddress:{:?}",
+                                  vec_to_hex_string(&privkey),
+                                  vec_to_hex_string(&pubkey),
+                                  vec_to_hex_string(&address.to_vec()));
+            Ok(account)
         }
 
         #[ink(message)]
@@ -194,7 +185,10 @@ mod eth_holder {
                 Some(rpc_node) => rpc_node,
                 None => return Err(Error::ChainNotConfigured),
             };
-            let nonce = get_next_nonce(&rpc_node, self.address);
+            let caller = Self::env().caller();
+            let salt = caller.as_ref();
+            let (_, _, address) = derive_account(salt).unwrap();
+            let nonce = get_next_nonce(&rpc_node, address);
             Ok(nonce)
         }
 
@@ -216,7 +210,10 @@ mod eth_holder {
             };
 
             //step1: get nonce and gas_price.
-            let nonce = get_next_nonce(&rpc_node, self.address);
+            let caller = Self::env().caller();
+            let salt = caller.as_ref();
+            let (_, _, address) = derive_account(salt).unwrap();
+            let nonce = get_next_nonce(&rpc_node, address);
             let gas_price = get_gas_price(&rpc_node);
 
 
@@ -257,12 +254,12 @@ mod eth_holder {
             let contract = Addressable::create_native(1, EthHolder::new(), stack.clone());
 
             //generate account
-            mock::mock_getrandom(|_| {hex!("9eb2ee60393aeeec31709e256d448c9e40fa64233abf12318f63726e9c417b69").to_vec()});
+            mock::mock_derive_sr25519_key(|_| {hex!("9eb2ee60393aeeec31709e256d448c9e40fa64233abf12318f63726e9c417b69").to_vec()});
             mock::mock_get_public_key(|_| {hex!("026220268e36da1d799a67c3ac5ecac224b45cea2b047d1b68a8ffbf31f08b2750").to_vec()});
-            let addr = contract.call_mut().generate_account().unwrap();
-            println!("addr: {:?}", addr);
+            let (privkey, pubkey, address) = derive_account(b"eth-holder").unwrap();
+            println!("addr: {:?}", address);
             let expect_addr = hex!("559bfec75ad40e4ff21819bcd1f658cc475c41ba");
-            assert_eq!(addr, expect_addr);
+            assert_eq!(address, expect_addr);
 
             //construct chain uri
             let api_key = "2033e5cde24049d4a933778ffefe2457";
