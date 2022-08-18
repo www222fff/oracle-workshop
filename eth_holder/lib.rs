@@ -58,13 +58,14 @@ mod eth_holder {
     }
 
     pub fn derive_account(salt: &[u8]) -> Result<(Vec<u8>, Vec<u8>, Address)> {
-        let privkey = sig::derive_sr25519_key(salt);
+        let privkey_sr25519 = sig::derive_sr25519_key(salt);
+        let privkey = &privkey_sr25519[0..32];
         let pubkey = sig::get_public_key(&privkey, sig::SigType::Ecdsa);
-        let mut address = [0; 20];
         let pubkey_array = vec_to_array(&pubkey);
+        let mut address = [0; 20];
         ink_env::ecdsa_to_eth_address(&pubkey_array, &mut address).or(Err(Error::InvalidKey))?;
 
-        Ok((privkey, pubkey, address))
+        Ok((privkey.to_vec(), pubkey, address))
     }
 
 
@@ -146,16 +147,11 @@ mod eth_holder {
         }
     
         #[ink(message)]
-        pub fn get_account(&self) -> Result<String> {
+        pub fn get_account(&self) -> Result<(Vec<u8>, Vec<u8>, Address)> {
             let caller = Self::env().caller();
-            let salt = caller.as_ref();
+            let salt: &[u8]= caller.as_ref();
             let (privkey, pubkey, address) = derive_account(salt).unwrap();
-
-            let account = format!("privKey:{:?},\npubkey:{:?},\naddress:{:?}",
-                                  vec_to_hex_string(&privkey),
-                                  vec_to_hex_string(&pubkey),
-                                  vec_to_hex_string(&address.to_vec()));
-            Ok(account)
+            Ok((privkey, pubkey, address))
         }
 
         #[ink(message)]
@@ -241,7 +237,7 @@ mod eth_holder {
         use super::*;
         use ink_lang as ink;
         use openbrush::traits::mock::{Addressable, SharedCallStack};
-        use pink_extension::chain_extension::{mock, HttpResponse};
+        use pink::chain_extension::{mock, HttpResponse};
 
         fn default_accounts() -> ink_env::test::DefaultAccounts<PinkEnvironment> {
             ink_env::test::default_accounts::<Environment>()
