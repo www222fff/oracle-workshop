@@ -1,26 +1,15 @@
-//! Partial implementation of the `Accounts` namespace.
+#![cfg_attr(not(feature = "std"), no_std)]
 
-use crate::{api::Namespace, signing, types::H256, Transport};
+use pink_extension as pink;
 
-
-#[cfg(feature = "signing")]
+#[pink::contract(env=PinkEnvironment)]
 mod accounts_signing {
     use super::*;
-    use crate::{
-        api::Web3,
-        error,
-        signing::Signature,
-        types::{
-            AccessList, Address, Bytes, Recovery, RecoveryMessage, SignedData, SignedTransaction,
-            TransactionParameters, U256, U64,
-        },
-    };
+    use pink::chain_extension::signing;
     use rlp::RlpStream;
     use std::convert::TryInto;
 
     const LEGACY_TX_ID: u64 = 0;
-    const ACCESSLISTS_TX_ID: u64 = 1;
-    const EIP1559_TX_ID: u64 = 2;
 
     /// A transaction used for RLP encoding, hashing and signing.
     #[derive(Debug)]
@@ -32,8 +21,15 @@ mod accounts_signing {
         pub value: U256,
         pub data: Vec<u8>,
         pub transaction_type: Option<U64>,
-        pub access_list: AccessList,
-        pub max_priority_fee_per_gas: U256,
+    }
+
+    pub struct SignedTransaction {
+	pub message_hash: H256,
+	pub v: u64,
+	pub r: H256,
+	pub s: H256,
+	pub raw_transaction: Bytes,   
+	pub transaction_hash: H256,
     }
 
     impl Transaction {
@@ -48,6 +44,12 @@ mod accounts_signing {
             }
             stream.append(&self.value);
             stream.append(&self.data);
+        }
+
+        fn rlp_append_signature(&self, stream: &mut RlpStream, signature: &Signature) {
+            stream.append(&signature.v);
+            stream.append(&U256::from_big_endian(signature.r.as_bytes()));
+            stream.append(&U256::from_big_endian(signature.s.as_bytes()));
         }
 
         fn encode_legacy(&self, chain_id: u64, signature: Option<&Signature>) -> RlpStream {
@@ -67,92 +69,12 @@ mod accounts_signing {
             stream
         }
 
-        fn encode_access_list_payload(&self, chain_id: u64, signature: Option<&Signature>) -> RlpStream {
-            let mut stream = RlpStream::new();
-
-            let list_size = if signature.is_some() { 11 } else { 8 };
-            stream.begin_list(list_size);
-
-            // append chain_id. from EIP-2930: chainId is defined to be an integer of arbitrary size.
-            stream.append(&chain_id);
-
-            self.rlp_append_legacy(&mut stream);
-            self.rlp_append_access_list(&mut stream);
-
-            if let Some(signature) = signature {
-                self.rlp_append_signature(&mut stream, signature);
-            }
-
-            stream
-        }
-
-        fn encode_eip1559_payload(&self, chain_id: u64, signature: Option<&Signature>) -> RlpStream {
-            let mut stream = RlpStream::new();
-
-            let list_size = if signature.is_some() { 12 } else { 9 };
-            stream.begin_list(list_size);
-
-            // append chain_id. from EIP-2930: chainId is defined to be an integer of arbitrary size.
-            stream.append(&chain_id);
-
-            stream.append(&self.nonce);
-            stream.append(&self.max_priority_fee_per_gas);
-            stream.append(&self.gas_price);
-            stream.append(&self.gas);
-            if let Some(to) = self.to {
-                stream.append(&to);
-            } else {
-                stream.append(&"");
-            }
-            stream.append(&self.value);
-            stream.append(&self.data);
-
-            self.rlp_append_access_list(&mut stream);
-
-            if let Some(signature) = signature {
-                self.rlp_append_signature(&mut stream, signature);
-            }
-
-            stream
-        }
-
-        fn rlp_append_signature(&self, stream: &mut RlpStream, signature: &Signature) {
-            stream.append(&signature.v);
-            stream.append(&U256::from_big_endian(signature.r.as_bytes()));
-            stream.append(&U256::from_big_endian(signature.s.as_bytes()));
-        }
-
-        fn rlp_append_access_list(&self, stream: &mut RlpStream) {
-            stream.begin_list(self.access_list.len());
-            for access in self.access_list.iter() {
-                stream.begin_list(2);
-                stream.append(&access.address);
-                stream.begin_list(access.storage_keys.len());
-                for storage_key in access.storage_keys.iter() {
-                    stream.append(storage_key);
-                }
-            }
-        }
-
         fn encode(&self, chain_id: u64, signature: Option<&Signature>) -> Vec<u8> {
             match self.transaction_type.map(|t| t.as_u64()) {
                 Some(LEGACY_TX_ID) | None => {
                     let stream = self.encode_legacy(chain_id, signature);
                     stream.out().to_vec()
                 }
-
-                Some(ACCESSLISTS_TX_ID) => {
-                    let tx_id: u8 = ACCESSLISTS_TX_ID as u8;
-                    let stream = self.encode_access_list_payload(chain_id, signature);
-                    [&[tx_id], stream.as_raw()].concat()
-                }
-
-                Some(EIP1559_TX_ID) => {
-                    let tx_id: u8 = EIP1559_TX_ID as u8;
-                    let stream = self.encode_eip1559_payload(chain_id, signature);
-                    [&[tx_id], stream.as_raw()].concat()
-                }
-
                 _ => {
                     panic!("Unsupported transaction type");
                 }
@@ -189,13 +111,11 @@ mod accounts_signing {
     }
 }
 
-#[cfg(all(test, not(target_arch = "wasm32")))]
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::{
         signing::{SecretKey, SecretKeyRef},
-        transports::test::TestTransport,
-        types::{Address, Recovery, SignedTransaction, TransactionParameters, U256},
     };
     use accounts_signing::*;
     use hex_literal::hex;
@@ -203,8 +123,6 @@ mod tests {
 
     #[test]
     fn sign_transaction_data() {
-        // retrieved test vector from:
-        // https://web3js.readthedocs.io/en/v1.2.2/web3-eth-accounts.html#eth-accounts-signtransaction
 
         let tx = Transaction {
             nonce: 0.into(),
@@ -214,8 +132,6 @@ mod tests {
             value: 1_000_000_000.into(),
             data: Vec::new(),
             transaction_type: None,
-            access_list: vec![],
-            max_priority_fee_per_gas: 0.into(),
         };
         let skey = SecretKey::from_slice(&hex!(
             "4c0883a69102937d6231471b5dbb6204fe5129617082792ae468d01a3f362318"
