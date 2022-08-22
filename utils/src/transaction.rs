@@ -1,8 +1,8 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 
 use ink_prelude::vec::Vec;
-use pink::chain_extension::{signing, SigType};
 use pink_extension as pink;
+use pink::chain_extension::{signing, SigType};
 use rlp::RlpStream;
 use std::convert::TryInto;
 pub use primitive_types::{U256, H256};
