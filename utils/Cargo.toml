@@ -18,7 +18,8 @@ scale-info = { version = "2", default-features = false, features = ["derive"], o
 
 pink-extension = { version = "0.1.8", default-features = false }
 hex = { version = "0.4.3", default-features = false, features = ["alloc"] }
-ethereum-types = "0.12.1"
+ethereum-types = { version = "0.13.1", default-features = false, features = ["rlp"] }
+
 rlp = "0.5"
 hex-literal = "0.3.4"
 

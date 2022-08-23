@@ -1,5 +1,3 @@
-#![cfg_attr(not(feature = "std"), no_std)]
-
 use ink_prelude::vec::Vec;
 use pink_extension as pink;
 use pink::chain_extension::{signing, SigType};
@@ -93,7 +91,7 @@ impl Transaction {
     /// Sign and return a raw signed transaction.
     pub fn sign(self, privkey: &[u8;32], chain_id: u64) {
         let encoded = self.encode(chain_id, None);
-        println!("encoded: {:?}", encoded);
+        //println!("encoded: {:?}", encoded);
 
         /*let hash = signing::keccak256(encoded.as_ref());
 
