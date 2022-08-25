@@ -3,6 +3,11 @@ use pink_extension as pink;
 use pink::chain_extension::{signing, SigType};
 use rlp::RlpStream;
 pub use ethereum_types::{BigEndianHash, Bloom as H2048, H128, H160, H256, H512, H520, H64, U128, U256, U64};
+use keccak_hasher::KeccakHasher;
+use hash_db::{
+    Hasher as KeyHasher,
+};
+
 
 pub type Address = H160;
 type Bytes = Vec<u8>;
@@ -89,17 +94,25 @@ impl Transaction {
     }
 
     /// Sign and return a raw signed transaction.
-    pub fn sign(self, privkey: &[u8;32], chain_id: u64) {
+    pub fn sign(self, privkey: &[u8;32], chain_id: u64) -> SignedTransaction {
         let encoded = self.encode(chain_id, None);
         //println!("encoded: {:?}", encoded);
 
-        /*let hash = signing::keccak256(encoded.as_ref());
+        let hash = KeccakHasher::hash(&encoded);
+        //println!("hash: {:?}", hash);
 
-        let signature = signing::sign(&hash, &privkey, SigType::Ecdsa); //how to generate v r s?
+        let sign = signing::sign(&hash, privkey, SigType::Ecdsa); 
+        //println!("sign: {:?}", sign);
+
+        let signature = Signature {
+            v: 38, //how to generate v ??
+            r: H256::from_slice(&sign[..32]),
+            s: H256::from_slice(&sign[32..]),
+        };
 
         let signed = self.encode(chain_id, Some(&signature));
 
-        let transaction_hash = signing::keccak256(signed.as_ref()).into();
+        let transaction_hash = KeccakHasher::hash(signed.as_ref()).into();
 
         SignedTransaction {
             message_hash: hash.into(),
@@ -108,7 +121,7 @@ impl Transaction {
             s: signature.s,
             raw_transaction: signed.into(),
             transaction_hash,
-        }*/
+        }
     }
 }
 
