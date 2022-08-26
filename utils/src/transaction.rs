@@ -2,16 +2,18 @@ use ink_prelude::vec::Vec;
 use pink_extension as pink;
 use pink::chain_extension::{signing, SigType};
 use rlp::RlpStream;
-pub use ethereum_types::{BigEndianHash, Bloom as H2048, H128, H160, H256, H512, H520, H64, U128, U256, U64};
-use keccak_hasher::KeccakHasher;
-use hash_db::{
-    Hasher as KeyHasher,
-};
-
+pub use ethereum_types::{H128, H160, H256, H512, H520, H64, U128, U256, U64};
+use sha3::{Keccak256, Digest};
 
 pub type Address = H160;
 type Bytes = Vec<u8>;
 const LEGACY_TX_ID: u64 = 0;
+
+fn keccakHash(x: &[u8]) -> [u8; 32] {
+    let mut hasher = Keccak256::new();
+    hasher.update(x);
+    hasher.finalize().into()
+}
 
 /// A transaction used for RLP encoding, hashing and signing.
 #[derive(Debug)]
@@ -98,7 +100,7 @@ impl Transaction {
         let encoded = self.encode(chain_id, None);
         //println!("encoded: {:?}", encoded);
 
-        let hash = KeccakHasher::hash(&encoded);
+        let hash = keccakHash(&encoded);
         //println!("hash: {:?}", hash);
 
         let sign = signing::sign(&hash, privkey, SigType::Ecdsa); 
@@ -112,7 +114,7 @@ impl Transaction {
 
         let signed = self.encode(chain_id, Some(&signature));
 
-        let transaction_hash = KeccakHasher::hash(signed.as_ref()).into();
+        let transaction_hash = keccakHash(signed.as_ref()).into();
 
         SignedTransaction {
             message_hash: hash.into(),
