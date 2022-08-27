@@ -3,6 +3,7 @@
 
 use pink_extension as pink;
 use hex_literal::hex;
+use fat_utils::transaction;
 
 #[pink::contract(env=PinkEnvironment)]
 mod eth_holder {
@@ -20,8 +21,8 @@ mod eth_holder {
     use serde::Deserialize;
     use serde_json_core::from_slice;
     use core::fmt::Write;
-
-    pub use primitive_types::{U256, H256};
+    use primitive_types::{U256, H256};
+    use fat_utils::transaction;
 
     type Address = [u8; 20];
     /// Type alias for the contract's result type.
@@ -199,7 +200,7 @@ mod eth_holder {
         }
 
         #[ink(message)]
-        pub fn send_transaction(&self, chain: String, to: Address, value: U256) -> Result<String> {
+        pub fn send_transaction(&self, chain: String, to: Address, value: U256) -> Result<()> {
             let rpc_node = match self.rpc_nodes.get(&chain) {
                 Some(rpc_node) => rpc_node,
                 None => return Err(Error::ChainNotConfigured),
@@ -208,27 +209,43 @@ mod eth_holder {
             //step1: get nonce and gas_price.
             let caller = Self::env().caller();
             let salt = caller.as_ref();
-            let (_, _, address) = derive_account(salt).unwrap();
+            let (privKey, _, address) = derive_account(salt).unwrap();
             let nonce = get_next_nonce(&rpc_node, address);
             let gas_price = get_gas_price(&rpc_node);
 
 
-            /* TBD
-            let tx = TransactionObj {
-                to,
-                value,
+            /*let tx = Transaction {
                 nonce,
-                gas,
+                gas: 2_000_000.into(),
                 gas_price,
+                to,
+                value:,
+                data: Vec::new(),
+                transaction_type: None,
             };
+
             //step2: sign tx.
-            let signTx = sign_transaction(&tx, &self.private_key).unwrap();
+            let signTx = tx.sign(&privKey, chain_id);
 
             //step3: send raw transaction 
-            let txHash = send_raw_transaction(&signTx.raw_transaction);
+            let txHash = send_raw_transaction(&rpc_node, &signTx.raw_transaction);
+            Ok(txHash)
             */
 
-            Ok("txHash".to_string())
+            /*let tx = transaction::Transaction {
+                nonce: 0.into(),
+                gas: 2_000_000.into(),
+                gas_price: 234_567_897_654_321u64.into(),
+                to: Some(hex!("F0109fC8DF283027b6285cc889F5aA624EaC1F55").into()),
+                value: 1_000_000_000.into(),
+                data: Vec::new(),
+                transaction_type: None,
+            };
+            let skey = hex!("4c0883a69102937d6231471b5dbb6204fe5129617082792ae468d01a3f362318");
+            let signTx = tx.sign(&skey, 1);
+            Ok(signTx)*/
+
+            Ok(())
         }
     }
 

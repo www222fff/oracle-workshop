@@ -2,21 +2,20 @@ use ink_prelude::vec::Vec;
 use pink_extension as pink;
 use pink::chain_extension::{signing, SigType};
 use rlp::RlpStream;
-pub use ethereum_types::{H128, H160, H256, H512, H520, H64, U128, U256, U64};
+use ethereum_types::{H160, H256, U256, U64};
 use sha3::{Keccak256, Digest};
 
 pub type Address = H160;
 type Bytes = Vec<u8>;
 const LEGACY_TX_ID: u64 = 0;
 
-fn keccakHash(x: &[u8]) -> [u8; 32] {
+fn keccak_hash(x: &[u8]) -> [u8; 32] {
     let mut hasher = Keccak256::new();
     hasher.update(x);
     hasher.finalize().into()
 }
 
 /// A transaction used for RLP encoding, hashing and signing.
-#[derive(Debug)]
 pub struct Transaction {
     pub to: Option<Address>,
     pub nonce: U256,
@@ -27,7 +26,7 @@ pub struct Transaction {
     pub transaction_type: Option<U64>,
 }
 
-
+#[derive(Clone, Debug, PartialEq)]
 pub struct SignedTransaction {
     pub message_hash: H256,
     pub v: u64,
@@ -95,29 +94,27 @@ impl Transaction {
         }
     }
 
-    /// Sign and return a raw signed transaction.
     pub fn sign(self, privkey: &[u8;32], chain_id: u64) -> SignedTransaction {
         let encoded = self.encode(chain_id, None);
-        //println!("encoded: {:?}", encoded);
 
-        let hash = keccakHash(&encoded);
-        //println!("hash: {:?}", hash);
+        let msg_hash = keccak_hash(&encoded);
 
-        let sign = signing::sign(&hash, privkey, SigType::Ecdsa); 
-        //println!("sign: {:?}", sign);
+        let sign = signing::sign(&msg_hash, privkey, SigType::Ecdsa); 
 
+        //EIP155: {0,1} + CHAIN_ID * 2 + 35 ???
+        let recid:u64 = chain_id * 2 + 35;
         let signature = Signature {
-            v: 38, //how to generate v ??
+            v: recid,
             r: H256::from_slice(&sign[..32]),
             s: H256::from_slice(&sign[32..]),
         };
 
         let signed = self.encode(chain_id, Some(&signature));
 
-        let transaction_hash = keccakHash(signed.as_ref()).into();
+        let transaction_hash = keccak_hash(signed.as_ref()).into();
 
         SignedTransaction {
-            message_hash: hash.into(),
+            message_hash: msg_hash.into(),
             v: signature.v,
             r: signature.r,
             s: signature.s,
@@ -131,6 +128,7 @@ impl Transaction {
 mod tests {
     use super::*;
     use hex_literal::hex;
+    use pink::chain_extension::mock;
 
     #[test]
     fn sign_transaction_data() {
@@ -146,9 +144,10 @@ mod tests {
         };
         let skey = hex!("4c0883a69102937d6231471b5dbb6204fe5129617082792ae468d01a3f362318");
 
+        mock::mock_sign(|_| {hex!("09ebb6ca057a0535d6186462bc0b465b561c94a295bdb0621fc19208ab149a9c440ffd775ce91a833ab410777204d5341a6f9fa91216a6f3ee2c051fea6a0428").to_vec()});
         let signed = tx.sign(&skey, 1);
 
-        /*let expected = SignedTransaction {
+        let expected = SignedTransaction {
             message_hash: hex!("6893a6ee8df79b0f5d64a180cd1ef35d030f3e296a5361cf04d02ce720d32ec5").into(),
             v: 0x25,
             r: hex!("09ebb6ca057a0535d6186462bc0b465b561c94a295bdb0621fc19208ab149a9c").into(),
@@ -157,6 +156,6 @@ mod tests {
             transaction_hash: hex!("d8f64a42b57be0d565f385378db2f6bf324ce14a594afc05de90436e9ce01f60").into(),
         };
 
-        assert_eq!(signed, expected);*/
+        assert_eq!(signed, expected);
     }
 }
