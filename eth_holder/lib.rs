@@ -144,14 +144,6 @@ mod eth_holder {
         }
     
         #[ink(message)]
-        pub fn get_account(&self) -> Result<([u8; 32], [u8; 33], Address)> {
-            let caller = Self::env().caller();
-            let salt: &[u8]= caller.as_ref();
-            let (privkey, pubkey, address) = derive_account(salt).unwrap();
-            Ok((privkey, pubkey, address))
-        }
-
-        #[ink(message)]
         pub fn set_api_key(&mut self, api_key: String) -> Result<()> {
             self.api_key = api_key;
             self.is_api_key_set = true;
@@ -170,6 +162,61 @@ mod eth_holder {
             );
             self.rpc_nodes.insert(&chain, &http_endpoint);
             Ok(())
+        }
+
+        #[ink(message)]
+        pub fn send_transaction(&self, chain: String, to: Address, value: u64) -> Result<String> {
+            let rpc_node = match self.rpc_nodes.get(&chain) {
+                Some(rpc_node) => rpc_node,
+                None => return Err(Error::ChainNotConfigured),
+            };
+
+            //step1: get nonce and gas_price.
+            let caller = Self::env().caller();
+            let salt = caller.as_ref();
+            let (privKey, _, address) = derive_account(salt).unwrap();
+            let nonce = get_next_nonce(&rpc_node, address);
+            let gas_price = get_gas_price(&rpc_node);
+
+
+            let tx = transaction::Transaction {
+                nonce: nonce.into(),
+                gas: 2_000_000.into(),
+                gas_price: gas_price.into(),
+                to: Some(to.into()),
+                value: value.into(),
+                data: Vec::new(),
+                transaction_type: None,
+            };
+
+            //step2: sign tx.
+            let signTx: transaction::SignedTransaction = tx.sign(&privKey, get_chain_id(chain));
+
+            //step3: send raw transaction 
+            let txHash = send_raw_transaction(&rpc_node, signTx.raw_transaction);
+            Ok(txHash)
+
+            /*debug
+            let tx = transaction::Transaction {
+                nonce: 0.into(),
+                gas: 2_000_000.into(),
+                gas_price: 234_567_897_654_321u64.into(),
+                to: Some(hex!("F0109fC8DF283027b6285cc889F5aA624EaC1F55").into()),
+                value: 1_000_000_000.into(),
+                data: Vec::new(),
+                transaction_type: None,
+            };
+            let skey = hex!("4c0883a69102937d6231471b5dbb6204fe5129617082792ae468d01a3f362318");
+            let signTx = tx.sign(&skey, 1);
+            Ok(signTx)*/
+        }
+
+        #[ink(message)]
+        pub fn get_account(&self) -> Result<([u8; 32], [u8; 33], Address)> {
+            let caller = Self::env().caller();
+            let salt: &[u8]= caller.as_ref();
+            let (privkey, pubkey, address) = derive_account(salt).unwrap();
+            Ok((privkey, pubkey, address))
         }
 
         #[ink(message)]
@@ -195,51 +242,6 @@ mod eth_holder {
             Ok(gas_price)
         }
 
-        #[ink(message)]
-        pub fn send_transaction(&self, chain: String, to: Address, value: u64) -> Result<String> {
-            let rpc_node = match self.rpc_nodes.get(&chain) {
-                Some(rpc_node) => rpc_node,
-                None => return Err(Error::ChainNotConfigured),
-            };
-
-            //step1: get nonce and gas_price.
-            let caller = Self::env().caller();
-            let salt = caller.as_ref();
-            let (privKey, _, address) = derive_account(salt).unwrap();
-            let nonce = get_next_nonce(&rpc_node, address);
-            let gas_price = get_gas_price(&rpc_node);
-
-
-            let tx = transaction::Transaction {
-                nonce: nonce.into(),
-                gas: 2_000_000.into(),
-                gas_price: gas_price.into(),
-                to: Some(hex!("F0109fC8DF283027b6285cc889F5aA624EaC1F55").into()),
-                value: value.into(),
-                data: Vec::new(),
-                transaction_type: None,
-            };
-
-            //step2: sign tx.
-            let signTx: transaction::SignedTransaction = tx.sign(&privKey, get_chain_id(chain));
-
-            //step3: send raw transaction 
-            let txHash = send_raw_transaction(&rpc_node, signTx.raw_transaction);
-            Ok(txHash)
-
-            /*let tx = transaction::Transaction {
-                nonce: 0.into(),
-                gas: 2_000_000.into(),
-                gas_price: 234_567_897_654_321u64.into(),
-                to: Some(hex!("F0109fC8DF283027b6285cc889F5aA624EaC1F55").into()),
-                value: 1_000_000_000.into(),
-                data: Vec::new(),
-                transaction_type: None,
-            };
-            let skey = hex!("4c0883a69102937d6231471b5dbb6204fe5129617082792ae468d01a3f362318");
-            let signTx = tx.sign(&skey, 1);
-            Ok(signTx)*/
-        }
     }
 
     #[cfg(test)]
