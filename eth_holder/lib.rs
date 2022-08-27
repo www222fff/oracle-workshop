@@ -21,7 +21,6 @@ mod eth_holder {
     use serde::Deserialize;
     use serde_json_core::from_slice;
     use core::fmt::Write;
-    use primitive_types::{U256, H256};
     use fat_utils::transaction;
 
     type Address = [u8; 20];
@@ -33,7 +32,6 @@ mod eth_holder {
     #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
     pub struct EthHolder {
         rpc_nodes: Mapping<String, String>,
-        chain_account_id: Mapping<String, String>,
         api_key: String,
         is_api_key_set: bool,
     }
@@ -58,22 +56,20 @@ mod eth_holder {
         ApiKeyNotSet,
     }
 
-    pub fn derive_account(salt: &[u8]) -> Result<(Vec<u8>, Vec<u8>, Address)> {
+    pub fn derive_account(salt: &[u8]) -> Result<([u8; 32], [u8; 33], Address)> {
         let privkey_sr25519 = sig::derive_sr25519_key(salt);
-        let privkey = &privkey_sr25519[0..32];
-        let pubkey = sig::get_public_key(&privkey, sig::SigType::Ecdsa);
-        let pubkey_array = vec_to_array(&pubkey);
+        let privkey: [u8; 32] = privkey_sr25519[0..32].try_into().expect("Expected a Vec of length 32");
+        let pubkey: [u8; 33] = sig::get_public_key(&privkey, sig::SigType::Ecdsa).try_into().expect("Expected a Vec of length 33");
         let mut address = [0; 20];
-        ink_env::ecdsa_to_eth_address(&pubkey_array, &mut address).or(Err(Error::InvalidKey))?;
+        ink_env::ecdsa_to_eth_address(&pubkey, &mut address).or(Err(Error::InvalidKey))?;
 
-        Ok((privkey.to_vec(), pubkey, address))
+        Ok((privkey, pubkey, address))
     }
 
-
-    fn vec_to_array<T>(v: &Vec<T>) -> [T; 33] where T: Copy {
-        let slice = v.as_slice();
-        let array: [T; 33] = slice.try_into().expect("Expected a Vec of length 33");
-        array
+    fn get_chain_id(chain: String) -> u64 {
+        if chain == "mainnet" { 1 }
+        else if chain == "rinkeby" { 4 }
+        else { 0 }
     }
 
     fn vec_to_hex_string(v: &Vec<u8>) -> String {
@@ -148,7 +144,7 @@ mod eth_holder {
         }
     
         #[ink(message)]
-        pub fn get_account(&self) -> Result<(Vec<u8>, Vec<u8>, Address)> {
+        pub fn get_account(&self) -> Result<([u8; 32], [u8; 33], Address)> {
             let caller = Self::env().caller();
             let salt: &[u8]= caller.as_ref();
             let (privkey, pubkey, address) = derive_account(salt).unwrap();
@@ -200,7 +196,7 @@ mod eth_holder {
         }
 
         #[ink(message)]
-        pub fn send_transaction(&self, chain: String, to: Address, value: U256) -> Result<()> {
+        pub fn send_transaction(&self, chain: String, to: Address, value: u64) -> Result<String> {
             let rpc_node = match self.rpc_nodes.get(&chain) {
                 Some(rpc_node) => rpc_node,
                 None => return Err(Error::ChainNotConfigured),
@@ -214,23 +210,22 @@ mod eth_holder {
             let gas_price = get_gas_price(&rpc_node);
 
 
-            /*let tx = Transaction {
-                nonce,
+            let tx = transaction::Transaction {
+                nonce: nonce.into(),
                 gas: 2_000_000.into(),
-                gas_price,
-                to,
-                value:,
+                gas_price: gas_price.into(),
+                to: Some(hex!("F0109fC8DF283027b6285cc889F5aA624EaC1F55").into()),
+                value: value.into(),
                 data: Vec::new(),
                 transaction_type: None,
             };
 
             //step2: sign tx.
-            let signTx = tx.sign(&privKey, chain_id);
+            let signTx: transaction::SignedTransaction = tx.sign(&privKey, get_chain_id(chain));
 
             //step3: send raw transaction 
-            let txHash = send_raw_transaction(&rpc_node, &signTx.raw_transaction);
+            let txHash = send_raw_transaction(&rpc_node, signTx.raw_transaction);
             Ok(txHash)
-            */
 
             /*let tx = transaction::Transaction {
                 nonce: 0.into(),
@@ -244,8 +239,6 @@ mod eth_holder {
             let skey = hex!("4c0883a69102937d6231471b5dbb6204fe5129617082792ae468d01a3f362318");
             let signTx = tx.sign(&skey, 1);
             Ok(signTx)*/
-
-            Ok(())
         }
     }
 

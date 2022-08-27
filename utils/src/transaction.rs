@@ -102,9 +102,9 @@ impl Transaction {
         let sign = signing::sign(&msg_hash, privkey, SigType::Ecdsa); 
 
         //EIP155: {0,1} + CHAIN_ID * 2 + 35 ???
-        let recid:u64 = chain_id * 2 + 35;
+        let recid:u64 = sign[64].into();
         let signature = Signature {
-            v: recid,
+            v: recid + chain_id * 2 + 35,
             r: H256::from_slice(&sign[..32]),
             s: H256::from_slice(&sign[32..]),
         };
