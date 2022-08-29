@@ -4,6 +4,7 @@
 use pink_extension as pink;
 use hex_literal::hex;
 use fat_utils::transaction;
+use hex::FromHex;
 
 #[pink::contract(env=PinkEnvironment)]
 mod eth_holder {
@@ -173,7 +174,7 @@ mod eth_holder {
         }
 
         #[ink(message)]
-        pub fn send_transaction(&self, chain: String, to: Address, value: u64) -> Result<String> {
+        pub fn send_transaction(&self, chain: String, to: String, value: u64) -> Result<String> {
             let rpc_node = match self.rpc_nodes.get(&chain) {
                 Some(rpc_node) => rpc_node,
                 None => return Err(Error::ChainNotConfigured),
@@ -185,13 +186,13 @@ mod eth_holder {
             let (privKey, _, address) = derive_account(salt).unwrap();
             let nonce = get_next_nonce(&rpc_node, address);
             let gas_price = get_gas_price(&rpc_node);
-
+            let receipt = <Address>::from_hex(to.trim_start_matches("0x")).expect("Decoding address failed");
 
             let tx = transaction::Transaction {
                 nonce: nonce.into(),
                 gas: 2_000_000.into(),
                 gas_price: gas_price.into(),
-                to: Some(to.into()),
+                to: Some(receipt.into()),
                 value: value.into(),
                 data: Vec::new(),
                 transaction_type: None,
@@ -287,7 +288,7 @@ mod eth_holder {
 
             //send transaction
             mock::mock_sign(|_| {hex!("09ebb6ca057a0535d6186462bc0b465b561c94a295bdb0621fc19208ab149a9c440ffd775ce91a833ab410777204d5341a6f9fa91216a6f3ee2c051fea6a042800").to_vec()});
-            let tx_hash = contract.call().send_transaction(chain.to_string(), address, 1_000_000_000u64).unwrap();
+            let tx_hash = contract.call().send_transaction(chain.to_string(), vec_to_hex_string(&address.to_vec()), 1_000_000_000u64).unwrap();
             println!("tx_hash: {}", tx_hash);
         }
     }
