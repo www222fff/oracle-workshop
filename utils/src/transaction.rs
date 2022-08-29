@@ -16,6 +16,7 @@ fn keccak_hash(x: &[u8]) -> [u8; 32] {
 }
 
 /// A transaction used for RLP encoding, hashing and signing.
+#[derive(Clone, Debug, PartialEq)]
 pub struct Transaction {
     pub to: Option<Address>,
     pub nonce: U256,
@@ -106,7 +107,7 @@ impl Transaction {
         let signature = Signature {
             v: recid + chain_id * 2 + 35,
             r: H256::from_slice(&sign[..32]),
-            s: H256::from_slice(&sign[32..]),
+            s: H256::from_slice(&sign[32..64]),
         };
 
         let signed = self.encode(chain_id, Some(&signature));
@@ -144,7 +145,7 @@ mod tests {
         };
         let skey = hex!("4c0883a69102937d6231471b5dbb6204fe5129617082792ae468d01a3f362318");
 
-        mock::mock_sign(|_| {hex!("09ebb6ca057a0535d6186462bc0b465b561c94a295bdb0621fc19208ab149a9c440ffd775ce91a833ab410777204d5341a6f9fa91216a6f3ee2c051fea6a0428").to_vec()});
+        mock::mock_sign(|_| {hex!("09ebb6ca057a0535d6186462bc0b465b561c94a295bdb0621fc19208ab149a9c440ffd775ce91a833ab410777204d5341a6f9fa91216a6f3ee2c051fea6a042800").to_vec()});
         let signed = tx.sign(&skey, 1);
 
         let expected = SignedTransaction {

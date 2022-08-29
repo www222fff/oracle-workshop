@@ -47,16 +47,15 @@ mod eth_holder {
     #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
     pub enum Error {
         InvalidKey,
+        InvalidChain,
         InvalidBody,
-        InvalidUrl,
-        InvalidSignature,
         RequestFailed,
         NoPermissions,
         ChainNotConfigured,
         ApiKeyNotSet,
     }
 
-    pub fn derive_account(salt: &[u8]) -> Result<([u8; 32], [u8; 33], Address)> {
+    fn derive_account(salt: &[u8]) -> Result<([u8; 32], [u8; 33], Address)> {
         let privkey_sr25519 = sig::derive_sr25519_key(salt);
         let privkey: [u8; 32] = privkey_sr25519[0..32].try_into().expect("Expected a Vec of length 32");
         let pubkey: [u8; 33] = sig::get_public_key(&privkey, sig::SigType::Ecdsa).try_into().expect("Expected a Vec of length 33");
@@ -66,10 +65,19 @@ mod eth_holder {
         Ok((privkey, pubkey, address))
     }
 
-    fn get_chain_id(chain: String) -> u64 {
-        if chain == "mainnet" { 1 }
-        else if chain == "rinkeby" { 4 }
-        else { 0 }
+    fn get_chain_id(chain: String) -> Result<u64> {
+
+        let chain_id;
+        if chain == "mainnet" { 
+            chain_id = 1;
+        }
+        else if chain == "rinkeby" {
+            chain_id = 4;
+        }
+        else {
+            return Err(Error::InvalidChain);
+        }
+        Ok(chain_id)
     }
 
     fn vec_to_hex_string(v: &Vec<u8>) -> String {
@@ -190,25 +198,11 @@ mod eth_holder {
             };
 
             //step2: sign tx.
-            let signTx: transaction::SignedTransaction = tx.sign(&privKey, get_chain_id(chain));
+            let signTx: transaction::SignedTransaction = tx.sign(&privKey, get_chain_id(chain).unwrap());
 
             //step3: send raw transaction 
             let txHash = send_raw_transaction(&rpc_node, signTx.raw_transaction);
             Ok(txHash)
-
-            /*debug
-            let tx = transaction::Transaction {
-                nonce: 0.into(),
-                gas: 2_000_000.into(),
-                gas_price: 234_567_897_654_321u64.into(),
-                to: Some(hex!("F0109fC8DF283027b6285cc889F5aA624EaC1F55").into()),
-                value: 1_000_000_000.into(),
-                data: Vec::new(),
-                transaction_type: None,
-            };
-            let skey = hex!("4c0883a69102937d6231471b5dbb6204fe5129617082792ae468d01a3f362318");
-            let signTx = tx.sign(&skey, 1);
-            Ok(signTx)*/
         }
 
         #[ink(message)]
@@ -290,6 +284,11 @@ mod eth_holder {
             let gas_price = contract.call().get_gas_price(chain.to_string()).unwrap();
             println!("gas_price: {}", gas_price);
             assert_eq!(gas_price, 8049999872);
+
+            //send transaction
+            mock::mock_sign(|_| {hex!("09ebb6ca057a0535d6186462bc0b465b561c94a295bdb0621fc19208ab149a9c440ffd775ce91a833ab410777204d5341a6f9fa91216a6f3ee2c051fea6a042800").to_vec()});
+            let tx_hash = contract.call().send_transaction(chain.to_string(), address, 1_000_000_000u64).unwrap();
+            println!("tx_hash: {}", tx_hash);
         }
     }
 }
