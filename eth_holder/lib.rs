@@ -130,12 +130,10 @@ mod eth_holder {
         u64::from_str_radix(&gas_price, 16).unwrap()
     }
 
-    fn send_raw_transaction(rpc_node: &String, raw_tx: Vec<u8>) -> String {
-        let raw_tx_str = vec_to_hex_string(&raw_tx);
-
+    fn send_raw_transaction(rpc_node: &String, raw_tx: &String) -> String {
         let data = format!(
             r#"{{"id":0,"jsonrpc":"2.0","method":"eth_sendRawTransaction","params":[{:?}]}}"#,
-            raw_tx_str
+            raw_tx
         )
         .into_bytes();
 
@@ -174,7 +172,7 @@ mod eth_holder {
         }
 
         #[ink(message)]
-        pub fn send_transaction(&self, chain: String, to: String, value: u64) -> Result<String> {
+        pub fn create_transaction(&self, chain: String, to: String, value: u64) -> Result<Vec<u8>> {
             let rpc_node = match self.rpc_nodes.get(&chain) {
                 Some(rpc_node) => rpc_node,
                 None => return Err(Error::ChainNotConfigured),
@@ -200,9 +198,16 @@ mod eth_holder {
 
             //step2: sign tx.
             let signTx: transaction::SignedTransaction = tx.sign(&privKey, get_chain_id(chain).unwrap());
+            Ok(signTx.raw_transaction)
+        }
 
-            //step3: send raw transaction 
-            let txHash = send_raw_transaction(&rpc_node, signTx.raw_transaction);
+        #[ink(message)]
+        pub fn send_transaction(&self, chain: String, raw_tx: String) -> Result<String> {
+            let rpc_node = match self.rpc_nodes.get(&chain) {
+                Some(rpc_node) => rpc_node,
+                None => return Err(Error::ChainNotConfigured),
+            };
+            let txHash = send_raw_transaction(&rpc_node, &raw_tx);
             Ok(txHash)
         }
 
@@ -286,10 +291,17 @@ mod eth_holder {
             println!("gas_price: {}", gas_price);
             assert_eq!(gas_price, 8049999872);
 
-            //send transaction
+            //create transaction
             mock::mock_sign(|_| {hex!("09ebb6ca057a0535d6186462bc0b465b561c94a295bdb0621fc19208ab149a9c440ffd775ce91a833ab410777204d5341a6f9fa91216a6f3ee2c051fea6a042800").to_vec()});
-            let tx_hash = contract.call().send_transaction(chain.to_string(), vec_to_hex_string(&address.to_vec()), 1_000_000_000u64).unwrap();
-            println!("tx_hash: {}", tx_hash);
+            let raw_tx = contract.call().create_transaction(chain.to_string(), vec_to_hex_string(&address.to_vec()), 1_000_000_000u64).unwrap();
+            println!("raw_tx: {:?}", raw_tx);
+
+            //send transaction
+            mock::mock_http_request(|_| {
+                HttpResponse::ok(br#"{"jsonrpc":"2.0","id":1,"result":"0xe670ec64341771606e55d6b4ca35a1a6b75ee3d5145a99d05921026d1527331"}"#.to_vec())
+            });
+            let tx_hash = contract.call().send_transaction(chain.to_string(), "0xd46e8dd67c5d32be8d46e8dd67c5d32be8058bb8eb970870f072445675058bb8eb970870f072445675".to_string()).unwrap();
+            println!("tx_hash: {:?}", tx_hash);
         }
     }
 }
