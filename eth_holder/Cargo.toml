@@ -48,6 +48,7 @@ std = [
     "scale-info/std",
     "pink-extension/std",
     "serde-json-core/std",
+    "fat_utils/std",
 ]
 ink-as-dependency = []
 mockable = [

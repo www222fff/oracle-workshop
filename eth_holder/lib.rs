@@ -3,13 +3,13 @@
 
 use pink_extension as pink;
 use hex_literal::hex;
-use fat_utils::transaction;
 use hex::FromHex;
 
 #[pink::contract(env=PinkEnvironment)]
 mod eth_holder {
     use super::*;
     use pink::{http_post, PinkEnvironment};
+    use pink::logger::{Level, Logger};
     use ink_storage::{traits::SpreadAllocate, Mapping};
     use scale::{Decode, Encode};
     use pink::chain_extension::signing as sig;
@@ -23,6 +23,9 @@ mod eth_holder {
     use serde_json_core::from_slice;
     use core::fmt::Write;
     use fat_utils::transaction;
+
+    static LOGGER: Logger = Logger::with_max_level(Level::Info);
+    pink::register_logger!(&LOGGER);
 
     type Address = [u8; 20];
     /// Type alias for the contract's result type.
@@ -101,6 +104,7 @@ mod eth_holder {
             return Err(Error::RequestFailed);
         }
         let body = response.body;
+	pink::info!("<=== response body {:?}", String::from_utf8(body.clone()).unwrap());
         let (rpc_res, _): (RpcResult, usize) = from_slice(&body).or(Err(Error::InvalidBody))?;
         
         let result = rpc_res.result.to_string();
@@ -114,6 +118,7 @@ mod eth_holder {
             account_str
         );
 
+        pink::info!("===> request body: {:?}", data);
         let result = call_rpc(rpc_node, data.into_bytes()).unwrap();
         let nonce:String = result.chars().skip(2).collect();
         u64::from_str_radix(&nonce, 16).unwrap()
@@ -122,10 +127,10 @@ mod eth_holder {
     fn get_gas_price(rpc_node: &String) -> u64 {
         let data = format!(
             r#"{{"id":0,"jsonrpc":"2.0","method":"eth_gasPrice","params":[]}}"#
-        )
-        .into_bytes();
+        );
 
-        let result = call_rpc(rpc_node, data).unwrap();
+        pink::info!("===> request body: {:?}", data);
+        let result = call_rpc(rpc_node, data.into_bytes()).unwrap();
         let gas_price:String = result.chars().skip(2).collect();
         u64::from_str_radix(&gas_price, 16).unwrap()
     }
@@ -134,10 +139,10 @@ mod eth_holder {
         let data = format!(
             r#"{{"id":0,"jsonrpc":"2.0","method":"eth_sendRawTransaction","params":[{:?}]}}"#,
             raw_tx
-        )
-        .into_bytes();
+        );
 
-        let tx_res = call_rpc(rpc_node, data).unwrap();
+        pink::info!("===> request body: {:?}", data);
+        let tx_res = call_rpc(rpc_node, data.into_bytes()).unwrap();
         tx_res
     }
 
@@ -257,6 +262,7 @@ mod eth_holder {
 
         #[ink::test]
         fn end_to_end() {
+            fat_utils::test_helper::mock_all();
             let accounts = default_accounts();
             let stack = SharedCallStack::new(accounts.alice);
             let contract = Addressable::create_native(1, EthHolder::new(), stack.clone());
