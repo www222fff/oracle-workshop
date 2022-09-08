@@ -101,6 +101,7 @@ mod eth_holder {
 
         let response = http_post!(rpc_node, data, headers);
         if response.status_code != 200 {
+	    pink::error!("<=== response err code {}", response.status_code);
             return Err(Error::RequestFailed);
         }
         let body = response.body;
@@ -135,15 +136,16 @@ mod eth_holder {
         u64::from_str_radix(&gas_price, 16).unwrap()
     }
 
-    fn send_raw_transaction(rpc_node: &String, raw_tx: &String) -> String {
+    fn send_raw_transaction(rpc_node: &String, raw_tx: &String) -> Result<String> {
         let data = format!(
             r#"{{"id":0,"jsonrpc":"2.0","method":"eth_sendRawTransaction","params":[{:?}]}}"#,
             raw_tx
         );
+//            r#"{{"id":0,"jsonrpc":"2.0","method":"eth_sendRawTransaction","params":["0xf864808459682f09831e84809407a565b7ed7d7a678680a4c162885bedbb695fe002802ba0084309622169be45e2dd26e6cce838735b9163af8a11ccb8cdf5f033ed7cae85a059ce6d3197c3ac56c32a97a309e74c8c029ef9bbedc62f230bc855780948e0ea"]}}"#);
 
         pink::info!("===> request body: {:?}", data);
-        let tx_res = call_rpc(rpc_node, data.into_bytes()).unwrap();
-        tx_res
+        let res = call_rpc(rpc_node, data.into_bytes());
+        res
     }
 
     impl EthHolder {
@@ -212,8 +214,8 @@ mod eth_holder {
                 Some(rpc_node) => rpc_node,
                 None => return Err(Error::ChainNotConfigured),
             };
-            let txHash = send_raw_transaction(&rpc_node, &raw_tx);
-            Ok(txHash)
+            let res = send_raw_transaction(&rpc_node, &raw_tx);
+            res
         }
 
         #[ink(message)]
