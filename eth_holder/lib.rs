@@ -92,7 +92,7 @@ mod eth_holder {
         res
     }
 
-    fn call_rpc(rpc_node: &String, data: Vec<u8>) -> Result<String> {
+    fn call_rpc(rpc_node: &String, data: Vec<u8>) -> Result<Vec<u8>> {
         let content_length = format!("{}", data.len());
         let headers: Vec<(String, String)> = vec![
             ("Content-Type".into(), "application/json".into()),
@@ -104,48 +104,53 @@ mod eth_holder {
 	    pink::error!("<=== response err code {}", response.status_code);
             return Err(Error::RequestFailed);
         }
+
         let body = response.body;
 	pink::info!("<=== response body {:?}", String::from_utf8(body.clone()).unwrap());
-        let (rpc_res, _): (RpcResult, usize) = from_slice(&body).or(Err(Error::InvalidBody))?;
-        
-        let result = rpc_res.result.to_string();
-        Ok(result)
+        Ok(body)
     }
 
-    fn get_next_nonce(rpc_node: &String, account: Address) -> u64 {
+    fn get_next_nonce(rpc_node: &String, account: Address) -> Result<u64> {
         let account_str = vec_to_hex_string(&account.to_vec());
         let data = format!(
-            r#"{{"id":0,"jsonrpc":"2.0","method":"eth_getTransactionCount","params":[{:?}, "latest"]}}"#,
+            r#"{{"id":0,"jsonrpc":"2.0","method":"eth_getTransactionCount","params":["{}", "latest"]}}"#,
             account_str
         );
 
         pink::info!("===> request body: {:?}", data);
-        let result = call_rpc(rpc_node, data.into_bytes()).unwrap();
+        let resp_body = call_rpc(rpc_node, data.into_bytes())?;
+        let (rpc_res, _): (RpcResult, usize) = from_slice(&resp_body).or(Err(Error::InvalidBody))?;
+ 
+        let result = rpc_res.result.to_string();
         let nonce:String = result.chars().skip(2).collect();
-        u64::from_str_radix(&nonce, 16).unwrap()
+        Ok(u64::from_str_radix(&nonce, 16).unwrap())
     }
     
-    fn get_gas_price(rpc_node: &String) -> u64 {
+    fn get_gas_price(rpc_node: &String) -> Result<u64> {
         let data = format!(
             r#"{{"id":0,"jsonrpc":"2.0","method":"eth_gasPrice","params":[]}}"#
         );
 
         pink::info!("===> request body: {:?}", data);
-        let result = call_rpc(rpc_node, data.into_bytes()).unwrap();
+        let resp_body = call_rpc(rpc_node, data.into_bytes())?;
+        let (rpc_res, _): (RpcResult, usize) = from_slice(&resp_body).or(Err(Error::InvalidBody))?;
+
+        let result = rpc_res.result.to_string();
         let gas_price:String = result.chars().skip(2).collect();
-        u64::from_str_radix(&gas_price, 16).unwrap()
+        Ok(u64::from_str_radix(&gas_price, 16).unwrap())
     }
 
     fn send_raw_transaction(rpc_node: &String, raw_tx: &String) -> Result<String> {
+        let mut raw_tx_hex = "0x".to_string();
+        raw_tx_hex += raw_tx;
         let data = format!(
-            r#"{{"id":0,"jsonrpc":"2.0","method":"eth_sendRawTransaction","params":[{:?}]}}"#,
-            raw_tx
+            r#"{{"id":0,"jsonrpc":"2.0","method":"eth_sendRawTransaction","params":["{}"]}}"#,
+            raw_tx_hex
         );
-//            r#"{{"id":0,"jsonrpc":"2.0","method":"eth_sendRawTransaction","params":["0xf864808459682f09831e84809407a565b7ed7d7a678680a4c162885bedbb695fe002802ba0084309622169be45e2dd26e6cce838735b9163af8a11ccb8cdf5f033ed7cae85a059ce6d3197c3ac56c32a97a309e74c8c029ef9bbedc62f230bc855780948e0ea"]}}"#);
-
         pink::info!("===> request body: {:?}", data);
-        let res = call_rpc(rpc_node, data.into_bytes());
-        res
+        let resp_body = call_rpc(rpc_node, data.into_bytes())?;
+        let body = String::from_utf8(resp_body).unwrap();
+        Ok(body)
     }
 
     impl EthHolder {
@@ -189,8 +194,8 @@ mod eth_holder {
             let caller = Self::env().caller();
             let salt = caller.as_ref();
             let (privKey, _, address) = derive_account(salt).unwrap();
-            let nonce = get_next_nonce(&rpc_node, address);
-            let gas_price = get_gas_price(&rpc_node);
+            let nonce = get_next_nonce(&rpc_node, address).unwrap();
+            let gas_price = get_gas_price(&rpc_node).unwrap();
             let receipt = <Address>::from_hex(to.trim_start_matches("0x")).expect("Decoding address failed");
 
             let tx = transaction::Transaction {
@@ -236,7 +241,7 @@ mod eth_holder {
             let salt = caller.as_ref();
             let (_, _, address) = derive_account(salt).unwrap();
             let nonce = get_next_nonce(&rpc_node, address);
-            Ok(nonce)
+            nonce
         }
 
         #[ink(message)]
@@ -246,7 +251,7 @@ mod eth_holder {
                 None => return Err(Error::ChainNotConfigured),
             };
             let gas_price = get_gas_price(&rpc_node);
-            Ok(gas_price)
+            gas_price
         }
 
     }
@@ -308,8 +313,13 @@ mod eth_holder {
             mock::mock_http_request(|_| {
                 HttpResponse::ok(br#"{"jsonrpc":"2.0","id":1,"result":"0xe670ec64341771606e55d6b4ca35a1a6b75ee3d5145a99d05921026d1527331"}"#.to_vec())
             });
-            let tx_hash = contract.call().send_transaction(chain.to_string(), "0xd46e8dd67c5d32be8d46e8dd67c5d32be8058bb8eb970870f072445675058bb8eb970870f072445675".to_string()).unwrap();
+            let tx_hash = contract.call().send_transaction(chain.to_string(), "d46e8dd67c5d32be8d46e8dd67c5d32be8058bb8eb970870f072445675058bb8eb970870f072445675".to_string()).unwrap();
             println!("tx_hash: {:?}", tx_hash);
+
+            mock::mock_http_request(|_| {
+                HttpResponse::ok(br#"{"jsonrpc":"2.0","id":1, "error": {"code": -32000, "message": "nonce too low"}}"#.to_vec())
+            });
+            let tx_hash = contract.call().send_transaction(chain.to_string(), "d46e8dd67c5d32be8d46e8dd67c5d32be8058bb8eb970870f072445675058bb8eb970870f072445675".to_string()).unwrap();
         }
     }
 }
