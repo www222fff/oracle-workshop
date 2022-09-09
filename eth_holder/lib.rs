@@ -313,13 +313,14 @@ mod eth_holder {
             mock::mock_http_request(|_| {
                 HttpResponse::ok(br#"{"jsonrpc":"2.0","id":1,"result":"0xe670ec64341771606e55d6b4ca35a1a6b75ee3d5145a99d05921026d1527331"}"#.to_vec())
             });
-            let tx_hash = contract.call().send_transaction(chain.to_string(), "d46e8dd67c5d32be8d46e8dd67c5d32be8058bb8eb970870f072445675058bb8eb970870f072445675".to_string()).unwrap();
-            println!("tx_hash: {:?}", tx_hash);
+            let response = contract.call().send_transaction(chain.to_string(), "d46e8dd67c5d32be8d46e8dd67c5d32be8058bb8eb970870f072445675058bb8eb970870f072445675".to_string()).unwrap();
+            println!("send transaction resposne: {:?}", response);
 
             mock::mock_http_request(|_| {
                 HttpResponse::ok(br#"{"jsonrpc":"2.0","id":1, "error": {"code": -32000, "message": "nonce too low"}}"#.to_vec())
             });
-            let tx_hash = contract.call().send_transaction(chain.to_string(), "d46e8dd67c5d32be8d46e8dd67c5d32be8058bb8eb970870f072445675058bb8eb970870f072445675".to_string()).unwrap();
+            let response = contract.call().send_transaction(chain.to_string(), "d46e8dd67c5d32be8d46e8dd67c5d32be8058bb8eb970870f072445675058bb8eb970870f072445675".to_string()).unwrap();
+            println!("send transaction resposne: {:?}", response);
         }
     }
 }
