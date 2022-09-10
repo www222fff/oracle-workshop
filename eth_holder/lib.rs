@@ -200,13 +200,14 @@ mod eth_holder {
 
             let tx = transaction::Transaction {
                 nonce: nonce.into(),
-                gas: 2_000_000.into(),
+                gas: 21_000.into(),
                 gas_price: gas_price.into(),
                 to: Some(receipt.into()),
                 value: value.into(),
                 data: Vec::new(),
                 transaction_type: None,
             };
+            pink::info!("===> tx: {:?}", tx);
 
             //step2: sign tx.
             let signTx: transaction::SignedTransaction = tx.sign(&privKey, get_chain_id(chain).unwrap());
