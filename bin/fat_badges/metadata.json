@@ -1,7 +1,7 @@
 {
   "source": {
-    "hash": "0x1275c6fafe64436b6ad3c39c7e9b6204bbdcb63f4d09dc424176088cb0072d4d",
-    "language": "ink! 3.3.0",
+    "hash": "0x1892e204a098f81150db8154afd96eba0f8a476a0ecad776eca5c05c47c25855",
+    "language": "ink! 3.3.1",
     "compiler": "rustc 1.62.0-nightly"
   },
   "contract": {
@@ -266,22 +266,6 @@
             "type": 20
           },
           "selector": "0x2f865bd9"
-        },
-        {
-          "args": [],
-          "docs": [
-            " Helper query to return the account id of the current contract instance"
-          ],
-          "label": "get_id",
-          "mutates": false,
-          "payable": false,
-          "returnType": {
-            "displayName": [
-              "AccountId"
-            ],
-            "type": 0
-          },
-          "selector": "0x6919c214"
         },
         {
           "args": [

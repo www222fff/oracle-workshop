@@ -3,7 +3,7 @@
 use pink_extension as pink;
 
 mod submittable {
-    use fat_utils::attestation::{Attestation, Verifier};
+    use pink_utils::attestation::{Attestation, Verifier};
     use ink_env::AccountId;
     use ink_lang as ink;
     use ink_prelude::string::String;
@@ -27,7 +27,7 @@ mod submittable {
     // Only used for test, but we have to define it outside `mod tests`
     pub mod mock_oracle {
         use super::*;
-        use fat_utils::attestation::{self, Generator};
+        use pink_utils::attestation::{self, Generator};
 
         pub struct MockOracle {
             admin: AccountId,
@@ -69,7 +69,7 @@ mod submittable {
 #[pink::contract(env=PinkEnvironment)]
 mod advanced_judger {
     use super::pink::PinkEnvironment;
-    use fat_utils::attestation;
+    use pink_utils::attestation;
     use ink_lang as ink;
     use ink_prelude::string::String;
     use ink_storage::traits::SpreadAllocate;
@@ -222,8 +222,7 @@ mod advanced_judger {
 
         #[ink::test]
         fn end_to_end() {
-            use pink_extension::chain_extension::mock;
-            fat_utils::test_helper::mock_all();
+            pink_extension_runtime::mock_ext::mock_all_ext();
 
             // Test accounts
             let accounts = default_accounts();

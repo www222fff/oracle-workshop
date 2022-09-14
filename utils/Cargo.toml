@@ -22,6 +22,10 @@ ethereum-types = { version = "0.13.1", default-features = false, features = ["rl
 rlp = { version = "0.5", default-features = false }
 hex-literal = "0.3.4"
 sha3 = { version = "0.10.2", default-features = false }
+
+[dev-dependencies]
+pink-extension-runtime = "0.1.3"
+
 [lib]
 name = "fat_utils"
 path = "src/lib.rs"

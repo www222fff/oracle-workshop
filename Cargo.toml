@@ -4,6 +4,8 @@ resolver = "2"
 members = [
     "eth_holder",
     "easy_oracle",
+    "advanced_judger",
+    "utils/environmental",
 ]
 
 exclude = [

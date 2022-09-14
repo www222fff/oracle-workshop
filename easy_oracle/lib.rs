@@ -1,11 +1,11 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 #![feature(trace_macros)]
 
-use fat_utils::attestation;
 use ink_env::AccountId;
 use ink_lang as ink;
 use ink_prelude::{string::String, vec::Vec};
 use pink_extension as pink;
+use pink_utils::attestation;
 
 #[ink::trait_definition]
 pub trait SubmittableOracle {
@@ -23,22 +23,18 @@ pub trait SubmittableOracle {
 mod easy_oracle {
     use super::pink;
     use super::SubmittableOracle;
-    use pink::logger::{Level, Logger};
     use pink::{http_get, PinkEnvironment};
 
-    use fat_utils::attestation;
     use ink_prelude::{
         string::{String, ToString},
         vec::Vec,
     };
     use ink_storage::traits::SpreadAllocate;
     use ink_storage::Mapping;
+    use pink_utils::attestation;
     use scale::{Decode, Encode};
 
     use fat_badges::issuable::IssuableRef;
-
-    static LOGGER: Logger = Logger::with_max_level(Level::Info);
-    pink::register_logger!(&LOGGER);
 
     #[ink(storage)]
     #[derive(SpreadAllocate)]
@@ -301,7 +297,7 @@ mod easy_oracle {
         #[ink::test]
         fn end_to_end() {
             use pink_extension::chain_extension::{mock, HttpResponse};
-            fat_utils::test_helper::mock_all();
+            pink_extension_runtime::mock_ext::mock_all_ext();
 
             // Test accounts
             let accounts = default_accounts();
