@@ -60,8 +60,8 @@ mod eth_holder {
     }
 
     fn derive_account(salt: &[u8]) -> Result<([u8; 32], [u8; 33], Address)> {
-        let privkey_sr25519 = sig::derive_sr25519_key(salt);
-        let privkey: [u8; 32] = privkey_sr25519[0..32].try_into().expect("Expected a Vec of length 32");
+        let privkey = sig::derive_sr25519_key(salt);
+        let privkey = &privkey[..32];
         let pubkey: [u8; 33] = sig::get_public_key(&privkey, sig::SigType::Ecdsa).try_into().expect("Expected a Vec of length 33");
         let mut address = [0; 20];
         ink_env::ecdsa_to_eth_address(&pubkey, &mut address).or(Err(Error::InvalidKey))?;

@@ -1,10 +1,9 @@
 use ink_prelude::vec::Vec;
 use pink_extension as pink;
-use pink::chain_extension::{signing, SigType};
+use pink::chain_extension::{signing};
 use rlp::RlpStream;
 use ethereum_types::{H160, H256, U256, U64};
 use sha3::{Keccak256, Digest};
-use secp256k1::{Secp256k1, Message, SecretKey};
 
 pub type Address = H160;
 type Bytes = Vec<u8>;
@@ -98,13 +97,12 @@ impl Transaction {
     pub fn sign(self, privkey: &[u8;32], chain_id: Option<u64>) -> SignedTransaction {
         let encoded = self.encode(chain_id.unwrap(), None);
 
-        let secp = Secp256k1::new();
-        let secret_key = SecretKey::from_slice(privkey).expect("32 bytes, within curve order");
         let msg_hash = keccak_hash(&encoded);
-        let message = Message::from_slice(&msg_hash).expect("32 bytes");
-        let (recovery_id, sign) = secp.sign_ecdsa_recoverable(&message, &secret_key).serialize_compact();
-        
-        let standard_v = recovery_id.to_i32() as u64;
+
+        let sign = signing::ecdsa_sign_prehashed(privkey, msg_hash);
+
+        let standard_v:u64 = sign[64].into();
+
         let v = if let Some(chain_id) = chain_id {
             // When signing with a chain ID, add chain replay protection.
             standard_v + 35 + chain_id * 2
