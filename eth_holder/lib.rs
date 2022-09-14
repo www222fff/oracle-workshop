@@ -69,7 +69,7 @@ mod eth_holder {
         Ok((privkey, pubkey, address))
     }
 
-    fn get_chain_id(chain: String) -> Result<u64> {
+    fn get_chain_id(chain: String) -> Option<u64> {
 
         let chain_id;
         if chain == "mainnet" { 
@@ -79,9 +79,9 @@ mod eth_holder {
             chain_id = 4;
         }
         else {
-            return Err(Error::InvalidChain);
+            return None;
         }
-        Ok(chain_id)
+        Some(chain_id)
     }
 
     fn vec_to_hex_string(v: &Vec<u8>) -> String {
@@ -210,8 +210,8 @@ mod eth_holder {
             pink::info!("===> tx: {:?}", tx);
 
             //step2: sign tx.
-            let signTx: transaction::SignedTransaction = tx.sign(&privKey, get_chain_id(chain).unwrap());
-            Ok(signTx.raw_transaction)
+            let sign_tx: transaction::SignedTransaction = tx.sign(&privKey, get_chain_id(chain));
+            Ok(sign_tx.raw_transaction)
         }
 
         #[ink(message)]

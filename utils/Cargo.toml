@@ -22,7 +22,7 @@ ethereum-types = { version = "0.13.1", default-features = false, features = ["rl
 rlp = { version = "0.5", default-features = false }
 hex-literal = "0.3.4"
 sha3 = { version = "0.10.2", default-features = false }
-
+secp256k1 = { version = "0.24.0", default-features = false, features = ["alloc"] }
 [lib]
 name = "fat_utils"
 path = "src/lib.rs"

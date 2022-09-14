@@ -4,6 +4,7 @@ use pink::chain_extension::{signing, SigType};
 use rlp::RlpStream;
 use ethereum_types::{H160, H256, U256, U64};
 use sha3::{Keccak256, Digest};
+use secp256k1::{Secp256k1, Message, SecretKey};
 
 pub type Address = H160;
 type Bytes = Vec<u8>;
@@ -34,7 +35,6 @@ pub struct SignedTransaction {
     pub r: H256,
     pub s: H256,
     pub raw_transaction: Bytes,   
-    pub transaction_hash: H256,
 }
 
 pub struct Signature {
@@ -95,24 +95,28 @@ impl Transaction {
         }
     }
 
-    pub fn sign(self, privkey: &[u8;32], chain_id: u64) -> SignedTransaction {
-        let encoded = self.encode(chain_id, None);
+    pub fn sign(self, privkey: &[u8;32], chain_id: Option<u64>) -> SignedTransaction {
+        let encoded = self.encode(chain_id.unwrap(), None);
 
+        let secp = Secp256k1::new();
+        let secret_key = SecretKey::from_slice(privkey).expect("32 bytes, within curve order");
         let msg_hash = keccak_hash(&encoded);
-
-        let sign = signing::sign(&msg_hash, privkey, SigType::Ecdsa); 
-
-        //EIP155: {0,1} + CHAIN_ID * 2 + 35 ???
-        let recid:u64 = sign[64].into();
-        let signature = Signature {
-            v: recid + chain_id * 2 + 35,
-            r: H256::from_slice(&sign[..32]),
-            s: H256::from_slice(&sign[32..64]),
+        let message = Message::from_slice(&msg_hash).expect("32 bytes");
+        let (recovery_id, sign) = secp.sign_ecdsa_recoverable(&message, &secret_key).serialize_compact();
+        
+        let standard_v = recovery_id.to_i32() as u64;
+        let v = if let Some(chain_id) = chain_id {
+            // When signing with a chain ID, add chain replay protection.
+            standard_v + 35 + chain_id * 2
+        } else {
+            // Otherwise, convert to 'Electrum' notation.
+            standard_v + 27
         };
+        let r = H256::from_slice(&sign[..32]);
+        let s = H256::from_slice(&sign[32..]);
 
-        let signed = self.encode(chain_id, Some(&signature));
-
-        let transaction_hash = keccak_hash(signed.as_ref()).into();
+        let signature =  Signature { v, r, s };
+        let signed = self.encode(chain_id.unwrap(), Some(&signature));
 
         SignedTransaction {
             message_hash: msg_hash.into(),
@@ -120,8 +124,8 @@ impl Transaction {
             r: signature.r,
             s: signature.s,
             raw_transaction: signed.into(),
-            transaction_hash,
         }
+
     }
 }
 
@@ -135,26 +139,25 @@ mod tests {
     fn sign_transaction_data() {
 
         let tx = Transaction {
-            nonce: 0.into(),
-            gas: 2_000_000.into(),
-            gas_price: 234_567_897_654_321u64.into(),
-            to: Some(hex!("F0109fC8DF283027b6285cc889F5aA624EaC1F55").into()),
+            nonce: 1.into(),
+            gas: 21_000.into(),
+            gas_price: 1_029_999_984.into(),
+            to: Some(hex!("CB353EC62AB1A6CEFcC0e235C81f1610729579fA").into()),
             value: 1_000_000_000.into(),
             data: Vec::new(),
             transaction_type: None,
         };
-        let skey = hex!("4c0883a69102937d6231471b5dbb6204fe5129617082792ae468d01a3f362318");
 
-        mock::mock_sign(|_| {hex!("09ebb6ca057a0535d6186462bc0b465b561c94a295bdb0621fc19208ab149a9c440ffd775ce91a833ab410777204d5341a6f9fa91216a6f3ee2c051fea6a042800").to_vec()});
-        let signed = tx.sign(&skey, 1);
+        let skey = hex!("eb60f49350612f05fd520ff187353b6e883da0161bbc24aa2f4a008e7ea43609");
+        let chain_id = 4;
+        let signed = tx.sign(&skey, Some(chain_id));
 
         let expected = SignedTransaction {
-            message_hash: hex!("6893a6ee8df79b0f5d64a180cd1ef35d030f3e296a5361cf04d02ce720d32ec5").into(),
-            v: 0x25,
-            r: hex!("09ebb6ca057a0535d6186462bc0b465b561c94a295bdb0621fc19208ab149a9c").into(),
-            s: hex!("440ffd775ce91a833ab410777204d5341a6f9fa91216a6f3ee2c051fea6a0428").into(),
-            raw_transaction: hex!("f86a8086d55698372431831e848094f0109fc8df283027b6285cc889f5aa624eac1f55843b9aca008025a009ebb6ca057a0535d6186462bc0b465b561c94a295bdb0621fc19208ab149a9ca0440ffd775ce91a833ab410777204d5341a6f9fa91216a6f3ee2c051fea6a0428").into(),
-            transaction_hash: hex!("d8f64a42b57be0d565f385378db2f6bf324ce14a594afc05de90436e9ce01f60").into(),
+            message_hash: hex!("6d44d42b1068d2cb345fae7ae8283984ce5d27f5e22220898c298c853898ebde").into(),
+            v: 0x2C,
+            r: hex!("5bfd43e1c4cd54681a367af85999174fb6cf32726ce73e699ff1f6ec4380cfb5").into(),
+            s: hex!("108f79930f5cb6390b83685103b96c32d6a43af392d63ff925a96ef67b57e8de").into(),
+            raw_transaction: hex!("f86701843d648d7082520894cb353ec62ab1a6cefcc0e235c81f1610729579fa843b9aca00802ca05bfd43e1c4cd54681a367af85999174fb6cf32726ce73e699ff1f6ec4380cfb5a0108f79930f5cb6390b83685103b96c32d6a43af392d63ff925a96ef67b57e8de").into(),
         };
 
         assert_eq!(signed, expected);
