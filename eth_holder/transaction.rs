@@ -96,11 +96,7 @@ impl Transaction {
 
     pub fn sign(self, privkey: &[u8;32], chain_id: Option<u64>) -> SignedTransaction {
         let encoded = self.encode(chain_id.unwrap(), None);
-
         let msg_hash = keccak_hash(&encoded);
-
-        println!("hash: {:?}", msg_hash);
-
         let sign = signing::ecdsa_sign_prehashed(privkey, msg_hash);
 
         let standard_v:u64 = sign[64].into();
@@ -113,7 +109,7 @@ impl Transaction {
             standard_v + 27
         };
         let r = H256::from_slice(&sign[..32]);
-        let s = H256::from_slice(&sign[32..]);
+        let s = H256::from_slice(&sign[32..64]);
 
         let signature =  Signature { v, r, s };
         let signed = self.encode(chain_id.unwrap(), Some(&signature));
