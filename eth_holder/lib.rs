@@ -2,14 +2,15 @@
 #![feature(trace_macros)]
 
 use pink_extension as pink;
-use hex_literal::hex;
 use hex::FromHex;
+
+pub mod transaction;
 
 #[pink::contract(env=PinkEnvironment)]
 mod eth_holder {
     use super::*;
     use pink::{http_post, PinkEnvironment};
-    use pink::logger::{Level, Logger};
+    //use pink::logger::{Level, Logger};
     use ink_storage::{traits::SpreadAllocate, Mapping};
     use scale::{Decode, Encode};
     use pink::chain_extension::signing as sig;
@@ -22,10 +23,6 @@ mod eth_holder {
     use serde::Deserialize;
     use serde_json_core::from_slice;
     use core::fmt::Write;
-    use fat_utils::transaction;
-
-    static LOGGER: Logger = Logger::with_max_level(Level::Info);
-    pink::register_logger!(&LOGGER);
 
     type Address = [u8; 20];
     /// Type alias for the contract's result type.
@@ -60,8 +57,8 @@ mod eth_holder {
     }
 
     fn derive_account(salt: &[u8]) -> Result<([u8; 32], [u8; 33], Address)> {
-        let privkey = sig::derive_sr25519_key(salt);
-        let privkey = &privkey[..32];
+        let privkey_sr25519 = sig::derive_sr25519_key(salt);
+        let privkey: [u8; 32] = privkey_sr25519[..32].try_into().expect("Expected a Vec of length 32");
         let pubkey: [u8; 33] = sig::get_public_key(&privkey, sig::SigType::Ecdsa).try_into().expect("Expected a Vec of length 33");
         let mut address = [0; 20];
         ink_env::ecdsa_to_eth_address(&pubkey, &mut address).or(Err(Error::InvalidKey))?;
@@ -101,12 +98,12 @@ mod eth_holder {
 
         let response = http_post!(rpc_node, data, headers);
         if response.status_code != 200 {
-	    pink::error!("<=== response err code {}", response.status_code);
+	    //pink::error!("<=== response err code {}", response.status_code);
             return Err(Error::RequestFailed);
         }
 
         let body = response.body;
-	pink::info!("<=== response body {:?}", String::from_utf8(body.clone()).unwrap());
+	//pink::info!("<=== response body {:?}", String::from_utf8(body.clone()).unwrap());
         Ok(body)
     }
 
@@ -117,7 +114,7 @@ mod eth_holder {
             account_str
         );
 
-        pink::info!("===> request body: {:?}", data);
+        //pink::info!("===> request body: {:?}", data);
         let resp_body = call_rpc(rpc_node, data.into_bytes())?;
         let (rpc_res, _): (RpcResult, usize) = from_slice(&resp_body).or(Err(Error::InvalidBody))?;
  
@@ -131,7 +128,7 @@ mod eth_holder {
             r#"{{"id":0,"jsonrpc":"2.0","method":"eth_gasPrice","params":[]}}"#
         );
 
-        pink::info!("===> request body: {:?}", data);
+        //pink::info!("===> request body: {:?}", data);
         let resp_body = call_rpc(rpc_node, data.into_bytes())?;
         let (rpc_res, _): (RpcResult, usize) = from_slice(&resp_body).or(Err(Error::InvalidBody))?;
 
@@ -140,14 +137,12 @@ mod eth_holder {
         Ok(u64::from_str_radix(&gas_price, 16).unwrap())
     }
 
-    fn send_raw_transaction(rpc_node: &String, raw_tx: &String) -> Result<String> {
-        let mut raw_tx_hex = "0x".to_string();
-        raw_tx_hex += raw_tx;
+    fn send_raw_transaction(rpc_node: &String, raw_tx: &Vec<u8>) -> Result<String> {
         let data = format!(
             r#"{{"id":0,"jsonrpc":"2.0","method":"eth_sendRawTransaction","params":["{}"]}}"#,
-            raw_tx_hex
+            vec_to_hex_string(raw_tx)
         );
-        pink::info!("===> request body: {:?}", data);
+        //pink::info!("===> request body: {:?}", data);
         let resp_body = call_rpc(rpc_node, data.into_bytes())?;
         let body = String::from_utf8(resp_body).unwrap();
         Ok(body)
@@ -184,7 +179,7 @@ mod eth_holder {
         }
 
         #[ink(message)]
-        pub fn create_transaction(&self, chain: String, to: String, value: u64) -> Result<Vec<u8>> {
+        pub fn send_transaction(&self, chain: String, to: String, value: u64) -> Result<String> {
             let rpc_node = match self.rpc_nodes.get(&chain) {
                 Some(rpc_node) => rpc_node,
                 None => return Err(Error::ChainNotConfigured),
@@ -193,7 +188,7 @@ mod eth_holder {
             //step1: get nonce and gas_price.
             let caller = Self::env().caller();
             let salt = caller.as_ref();
-            let (privKey, _, address) = derive_account(salt).unwrap();
+            let (priv_key, _, address) = derive_account(salt).unwrap();
             let nonce = get_next_nonce(&rpc_node, address).unwrap();
             let gas_price = get_gas_price(&rpc_node).unwrap();
             let receipt = <Address>::from_hex(to.trim_start_matches("0x")).expect("Decoding address failed");
@@ -207,21 +202,12 @@ mod eth_holder {
                 data: Vec::new(),
                 transaction_type: None,
             };
-            pink::info!("===> tx: {:?}", tx);
 
             //step2: sign tx.
-            let sign_tx: transaction::SignedTransaction = tx.sign(&privKey, get_chain_id(chain));
-            Ok(sign_tx.raw_transaction)
-        }
+            let sign_tx: transaction::SignedTransaction = tx.sign(&priv_key, get_chain_id(chain));
 
-        #[ink(message)]
-        pub fn send_transaction(&self, chain: String, raw_tx: String) -> Result<String> {
-            let rpc_node = match self.rpc_nodes.get(&chain) {
-                Some(rpc_node) => rpc_node,
-                None => return Err(Error::ChainNotConfigured),
-            };
-            let res = send_raw_transaction(&rpc_node, &raw_tx);
-            res
+            //step3: send
+            send_raw_transaction(&rpc_node, &sign_tx.raw_transaction)
         }
 
         #[ink(message)]
@@ -263,21 +249,22 @@ mod eth_holder {
         use ink_lang as ink;
         use openbrush::traits::mock::{Addressable, SharedCallStack};
         use pink::chain_extension::{mock, HttpResponse};
+        use hex_literal::hex;
 
         fn default_accounts() -> ink_env::test::DefaultAccounts<PinkEnvironment> {
             ink_env::test::default_accounts::<Environment>()
         }
 
         #[ink::test]
-        fn end_to_end() {
-            fat_utils::test_helper::mock_all();
+        fn end_to_end() { 
+            pink_extension_runtime::mock_ext::mock_all_ext();
+
             let accounts = default_accounts();
             let stack = SharedCallStack::new(accounts.alice);
             let contract = Addressable::create_native(1, EthHolder::new(), stack.clone());
 
             //generate account
             mock::mock_derive_sr25519_key(|_| {hex!("9eb2ee60393aeeec31709e256d448c9e40fa64233abf12318f63726e9c417b69").to_vec()});
-            mock::mock_get_public_key(|_| {hex!("026220268e36da1d799a67c3ac5ecac224b45cea2b047d1b68a8ffbf31f08b2750").to_vec()});
             let (privkey, pubkey, address) = derive_account(b"eth-holder").unwrap();
             println!("addr: {:?}", address);
             let expect_addr = hex!("559bfec75ad40e4ff21819bcd1f658cc475c41ba");
@@ -291,11 +278,11 @@ mod eth_holder {
 
             //get nonce
             mock::mock_http_request(|_| {
-                HttpResponse::ok(br#"{"jsonrpc":"2.0","id":1,"result":"0x8B"}"#.to_vec())
+                HttpResponse::ok(br#"{"jsonrpc":"2.0","id":1,"result":"0x01"}"#.to_vec())
             });
             let nonce = contract.call().get_nonce(chain.to_string()).unwrap();
             println!("nonce: {}", nonce);
-            assert_eq!(nonce, 0x8B);
+            assert_eq!(nonce, 1);
 
             //get gas price
             mock::mock_http_request(|_| {
@@ -305,23 +292,13 @@ mod eth_holder {
             println!("gas_price: {}", gas_price);
             assert_eq!(gas_price, 8049999872);
 
-            //create transaction
-            mock::mock_sign(|_| {hex!("09ebb6ca057a0535d6186462bc0b465b561c94a295bdb0621fc19208ab149a9c440ffd775ce91a833ab410777204d5341a6f9fa91216a6f3ee2c051fea6a042800").to_vec()});
-            let raw_tx = contract.call().create_transaction(chain.to_string(), vec_to_hex_string(&address.to_vec()), 1_000_000_000u64).unwrap();
-            println!("raw_tx: {:?}", raw_tx);
-
-            //send transaction
+            //send raw transaction
             mock::mock_http_request(|_| {
                 HttpResponse::ok(br#"{"jsonrpc":"2.0","id":1,"result":"0xe670ec64341771606e55d6b4ca35a1a6b75ee3d5145a99d05921026d1527331"}"#.to_vec())
             });
-            let response = contract.call().send_transaction(chain.to_string(), "d46e8dd67c5d32be8d46e8dd67c5d32be8058bb8eb970870f072445675058bb8eb970870f072445675".to_string()).unwrap();
-            println!("send transaction resposne: {:?}", response);
-
-            mock::mock_http_request(|_| {
-                HttpResponse::ok(br#"{"jsonrpc":"2.0","id":1, "error": {"code": -32000, "message": "nonce too low"}}"#.to_vec())
-            });
-            let response = contract.call().send_transaction(chain.to_string(), "d46e8dd67c5d32be8d46e8dd67c5d32be8058bb8eb970870f072445675058bb8eb970870f072445675".to_string()).unwrap();
-            println!("send transaction resposne: {:?}", response);
+            let tx_raw = hex!("e670ec64341771606e55").to_vec();
+            let tx_hash = send_raw_transaction(&chain.to_string(), &tx_raw).unwrap();
+            println!("tx_hash: {:?}", tx_hash);
         }
     }
 }

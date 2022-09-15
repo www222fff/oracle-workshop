@@ -99,6 +99,8 @@ impl Transaction {
 
         let msg_hash = keccak_hash(&encoded);
 
+        println!("hash: {:?}", msg_hash);
+
         let sign = signing::ecdsa_sign_prehashed(privkey, msg_hash);
 
         let standard_v:u64 = sign[64].into();
@@ -131,10 +133,10 @@ impl Transaction {
 mod tests {
     use super::*;
     use hex_literal::hex;
-    use pink::chain_extension::mock;
 
     #[test]
     fn sign_transaction_data() {
+        pink_extension_runtime::mock_ext::mock_all_ext();
 
         let tx = Transaction {
             nonce: 1.into(),
@@ -149,6 +151,8 @@ mod tests {
         let skey = hex!("eb60f49350612f05fd520ff187353b6e883da0161bbc24aa2f4a008e7ea43609");
         let chain_id = 4;
         let signed = tx.sign(&skey, Some(chain_id));
+
+        println!("signature: {:?}", signed);
 
         let expected = SignedTransaction {
             message_hash: hex!("6d44d42b1068d2cb345fae7ae8283984ce5d27f5e22220898c298c853898ebde").into(),
